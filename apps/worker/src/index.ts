@@ -61,7 +61,7 @@ async function uploadFile(l:Lease,path:string,durationMs:number){
  const file=await open(path,"r");
  try{
   const stat=await file.stat();if(stat.size>100_000_000)throw new Error("asset_too_large");
-  const hash=createHash("sha256");for await(const chunk of file.createReadStream())hash.update(chunk);
+  const hash=createHash("sha256");for await(const chunk of file.createReadStream({autoClose:false}))hash.update(chunk);
   const init=await api("assets/initiate","POST",{jobId:l.id,kind:"final",mime:"audio/mpeg",bytes:stat.size,sha256:hash.digest("hex"),durationMs},assigned(l));
   const assetId=init.assetId as string,partSize=init.partSize as number;let n=1;
   try{

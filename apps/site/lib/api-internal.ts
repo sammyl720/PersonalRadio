@@ -58,7 +58,7 @@ export async function handleInternal(request:Request,parts:string[]):Promise<Res
    }
    if(input.chunk){
     const c=input.chunk;
-    commands.push(db().prepare("INSERT OR IGNORE INTO audio_chunks(id,episode_id,job_id,owner_user_id,script_version,ordinal,cache_key,state) VALUES(?,?,?,?,?,?,?,'pending')").bind(c.id,ep.id,jid,job.owner_user_id,ep.script_version,c.ordinal,c.cacheKey));
+    commands.push(db().prepare("INSERT INTO audio_chunks(id,episode_id,job_id,owner_user_id,script_version,ordinal,cache_key,state) VALUES(?,?,?,?,?,?,?,'pending') ON CONFLICT(episode_id,script_version,ordinal) DO UPDATE SET id=excluded.id,job_id=excluded.job_id,cache_key=excluded.cache_key,state='pending',asset_id=NULL,duration_ms=NULL,provider_request_id=NULL,attempts=audio_chunks.attempts+1").bind(c.id,ep.id,jid,job.owner_user_id,ep.script_version,c.ordinal,c.cacheKey));
    }
    let state="running",episodeState=input.stage==="research"?"researching":input.stage==="outline"||input.stage==="chapter"?"writing":input.stage==="check"?"checking":input.stage==="voice"?"voicing":input.stage==="assembly"?"assembling":ep.state;
    const cp:Record<string,unknown>={...parsed<Record<string,unknown>>(job.checkpoint_json,{}),...input.checkpoint};
@@ -153,10 +153,11 @@ export async function handleInternal(request:Request,parts:string[]):Promise<Res
    const mp=parsed<any>(asset.multipart_state_json,null);if(!mp?.uploadId||!request.body)throw new ApiError("invalid_upload",409,"Multipart upload is unavailable");
    const declared=request.headers.get("x-radio-part-sha256");
    if(!declared||!/^[0-9a-f]{64}$/.test(declared))throw new ApiError("invalid_digest",422,"Part digest is required");
-   const hash=createHash("sha256");let count=0;
-   const stream=request.body.pipeThrough(new TransformStream<Uint8Array,Uint8Array>({transform(chunk,controller){count+=chunk.byteLength;if(count>8*1024*1024)throw new Error("Part is too large");hash.update(chunk);controller.enqueue(chunk);}}));
-   const uploaded=await bucket().resumeMultipartUpload(asset.object_key,mp.uploadId).uploadPart(part,stream);
-   if(hash.digest("hex")!==declared){await bucket().resumeMultipartUpload(asset.object_key,mp.uploadId).abort();throw new ApiError("invalid_digest",422,"Part digest mismatch");}
+   const bytes=new Uint8Array(await request.arrayBuffer());
+   if(bytes.byteLength>8*1024*1024)throw new ApiError("part_too_large",422,"Part is too large");
+   if(createHash("sha256").update(bytes).digest("hex")!==declared)throw new ApiError("invalid_digest",422,"Part digest mismatch");
+   const uploaded=await bucket().resumeMultipartUpload(asset.object_key,mp.uploadId).uploadPart(part,bytes);
+   const count=bytes.byteLength;
    const partsList=(mp.parts as any[]).filter(x=>x.partNumber!==part);partsList.push({partNumber:part,etag:uploaded.etag,bytes:count});
    await run("UPDATE assets SET multipart_state_json=? WHERE id=? AND owner_user_id=?",j({...mp,parts:partsList}),assetId,job.owner_user_id);
    return reply({partNumber:part,etag:uploaded.etag});

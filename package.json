@@ -6,7 +6,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --import tsx --test tests/*.test.mjs",
     "setup:local": "node scripts/setup-local.mjs",
     "site:dev": "npm --prefix apps/site run dev",
     "site:build": "npm --prefix apps/site run build",
