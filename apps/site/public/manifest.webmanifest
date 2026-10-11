@@ -1,0 +1,1 @@
+{"name":"Personal Radio","short_name":"Radio","description":"Your private audio programs","start_url":"/","scope":"/","display":"standalone","background_color":"#0b111b","theme_color":"#0b111b","icons":[{"src":"/favicon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}

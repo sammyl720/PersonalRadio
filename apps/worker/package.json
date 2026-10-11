@@ -1,0 +1,1 @@
+{"name":"personal-radio-worker","private":true,"type":"module","scripts":{"dev":"node --env-file=.env.local --import tsx src/index.ts","check":"tsc --noEmit -p tsconfig.json"}}

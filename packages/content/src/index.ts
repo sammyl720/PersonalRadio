@@ -1,0 +1,37 @@
+export const WORDS_PER_MINUTE = 145;
+export const CHARS_PER_WORD = 6;
+export const PRICING_VERSION = "2026-10-11-owner-rate-v1";
+
+export function estimateVoiceCharacters(minutes:number) { return Math.ceil(minutes*WORDS_PER_MINUTE*CHARS_PER_WORD); }
+export function estimateEpisodeUsd(minutes:number, rate:number|null, reserve=0.2) {
+  if (rate == null) return null;
+  return Math.ceil(estimateVoiceCharacters(minutes)*rate/1000*(1+reserve)*100)/100;
+}
+export function countWords(text:string) { return (text.trim().match(/\b[\p{L}\p{N}][\p{L}\p{N}'’-]*\b/gu) ?? []).length; }
+export function splitTurns<T extends {text:string; voiceId:string}>(turns:T[], maxCharacters=1700): T[][] {
+  const result:T[][]=[]; let current:T[]=[]; let length=0;
+  const flush=()=>{if(current.length){result.push(current);current=[];length=0;}};
+  for(const turn of turns){
+    const sentences=turn.text.match(/[^.!?]+[.!?]+(?:[”"']?\s*|$)|[^.!?]+$/g) ?? [turn.text];
+    for(const sentence of sentences){
+      const piece=sentence.trim(); if(!piece) continue;
+      if(piece.length>maxCharacters) throw new Error("A sentence exceeds the synthesis chunk limit");
+      if(length+piece.length>maxCharacters) flush();
+      current.push({...turn,text:piece}); length+=piece.length;
+    }
+  }
+  flush(); return result;
+}
+export function parseSingleRange(header:string|null, size:number):{start:number;end:number}|null|"invalid"{
+  if(!header) return null;
+  if(!/^bytes=\d*-\d*$/.test(header)) return "invalid";
+  const [first,last]=header.slice(6).split("-");
+  if(first==="" && last==="") return "invalid";
+  let start:number,end:number;
+  if(first==="") {const suffix=Number(last); if(!Number.isSafeInteger(suffix)||suffix<=0) return "invalid";start=Math.max(0,size-suffix);end=size-1;}
+  else {start=Number(first);end=last===""?size-1:Number(last);}
+  if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<0||start>=size||end<start) return "invalid";
+  return {start,end:Math.min(end,size-1)};
+}
+export function sha256Hex(data:Uint8Array):Promise<string>{return crypto.subtle.digest("SHA-256",new Uint8Array(data)).then(hash=>Array.from(new Uint8Array(hash),v=>v.toString(16).padStart(2,"0")).join(""));}
+export function utf8(value:string){return new TextEncoder().encode(value);}

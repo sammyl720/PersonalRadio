@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.dev.vars
+.DS_Store
+apps/worker/tmp/
+apps/site/.next/
+apps/site/dist/
+apps/site/.wrangler/
+apps/site/.vinext/
+apps/site/.sites-runtime/
+*.tgz
+
+*.tsbuildinfo
