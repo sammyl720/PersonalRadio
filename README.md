@@ -14,7 +14,14 @@ The worker claims fenced jobs through HMAC-authenticated Site endpoints. It chec
 
 ## Run locally
 
-Use Node 22.13 or newer, FFmpeg with `ffprobe`, and npm. Run `npm install`, then `npm --prefix apps/site install`. Run `npm run setup:local` once to create ignored, matched local HMAC settings. Apply `apps/site/drizzle/0000_luxuriant_tomorrow_man.sql` to the local D1 database with Wrangler, then start `npm run site:dev` and `npm run worker:dev` in separate terminals. Visit `http://127.0.0.1:5173/signin-with-chatgpt?return_to=/` for the local mock owner. The local worker uses deterministic fixtures, so generation uses no paid provider calls.
+Use Node 22.13 or newer, FFmpeg with `ffprobe`, and npm. Run `npm install`, then `npm --prefix apps/site install`. Run `npm run setup:local` once to create ignored, matched local HMAC settings. Build the Site once, then apply its D1 migration from `apps/site`:
+
+```sh
+node /absolute/path/to/sites-plugin/scripts/build-site.mjs
+node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_luxuriant_tomorrow_man.sql
+```
+
+Start `npm run site:dev` and `npm run worker:dev` from the repository root in separate terminals. Visit `http://127.0.0.1:5173/signin-with-chatgpt?return_to=/` for the local mock owner. The local worker uses deterministic fixtures, so generation uses no paid provider calls.
 
 Assign a fixture voice to a persona and set a voice rate in Settings before creating an episode. Generation pauses after the script is written for approval when its final voice quote exceeds the initial reserved estimate. `npm test`, `npx tsc --noEmit -p apps/site/tsconfig.json`, and `npm run worker:check` run the code checks. The Sites build uses `node <sites-plugin-root>/scripts/build-site.mjs` from `apps/site`.
 

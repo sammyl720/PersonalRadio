@@ -13,3 +13,5 @@ apps/site/.sites-runtime/
 *.tgz
 
 *.tsbuildinfo
+apps/site/.sites-checkout/
+apps/site/.sites-checkout-*/

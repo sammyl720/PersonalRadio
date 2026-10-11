@@ -10,7 +10,7 @@ function checked<T>(schema:z.ZodType<T>,input:unknown):T{const p=schema.safePars
 function headerLease(request:Request){return checked(lease,{leaseToken:request.headers.get("x-radio-lease"),fence:Number(request.headers.get("x-radio-fence"))});}
 async function active(request:Request,jobId:string){const l=headerLease(request);return validateLease(jobId,l.leaseToken,l.fence);}
 const assetInput=z.object({jobId:uuid,kind:z.enum(["chunk","final","answer","preview","recording"]),mime:z.enum(["audio/mpeg","audio/mp4","audio/webm"]),bytes:z.number().int().positive().max(100_000_000),sha256:z.string().regex(/^[0-9a-f]{64}$/),durationMs:z.number().int().min(0).nullable().default(null)});
-const checkpointInput=z.object({leaseToken:uuid,fence:z.number().int().positive(),stage:z.enum(stages),checkpoint:z.record(z.unknown()).default({}),cutoffAt:z.string().datetime().optional(),sources:z.array(z.object({id:uuid,url:z.string().url().startsWith("https://"),publisher:z.string().nullable().default(null),title:z.string().nullable().default(null),publishedAt:z.string().nullable().default(null),retrievedAt:z.string().datetime(),claims:z.array(z.string()).default([])})).max(100).optional(),chapter:z.object({id:uuid,ordinal:z.number().int().min(0).max(20),title:z.string().min(1).max(200),turns:z.array(z.object({speaker:z.number().int().min(0).max(1),text:z.string().min(1).max(12000)})).min(1),sourceIds:z.array(uuid).default([])}).optional(),chunk:z.object({id:uuid,ordinal:z.number().int().min(0).max(1000),cacheKey:z.string().regex(/^[0-9a-f]{64}$/)}).optional(),quoteUsd:z.number().nonnegative().optional(),quoteVersion:z.string().optional()});
+const checkpointInput=z.object({leaseToken:uuid,fence:z.number().int().positive(),stage:z.enum(stages),checkpoint:z.record(z.unknown()).default({}),cutoffAt:z.string().datetime().optional(),sources:z.array(z.object({id:uuid,url:z.string().url().startsWith("https://"),publisher:z.string().nullable().default(null),title:z.string().nullable().default(null),publishedAt:z.string().nullable().default(null),retrievedAt:z.string().datetime(),claims:z.array(z.string()).default([])})).max(100).optional(),chapter:z.object({id:uuid,ordinal:z.number().int().min(0).max(20),title:z.string().min(1).max(200),turns:z.array(z.object({speaker:z.number().int().min(0).max(1),text:z.string().min(1).max(12000),sourceIds:z.array(uuid).default([])})).min(1),sourceIds:z.array(uuid).default([])}).optional(),chunk:z.object({id:uuid,ordinal:z.number().int().min(0).max(1000),cacheKey:z.string().regex(/^[0-9a-f]{64}$/)}).optional(),quoteUsd:z.number().nonnegative().optional(),quoteVersion:z.string().optional()});
 export async function handleInternal(request:Request,parts:string[]):Promise<Response>{
  await authorizeInternal(request);
  const method=request.method;
@@ -19,7 +19,7 @@ export async function handleInternal(request:Request,parts:string[]):Promise<Res
   const ownerId=(env as any).OWNER_CHATGPT_USER_ID||(process.env.NODE_ENV!=="production"?"local_seedy":null);
   if(!ownerId)throw new ApiError("owner_not_configured",503,"Owner is not configured");
   const t=now(),until=new Date(Date.now()+120000).toISOString(),token=rid();
-  const row=await one("UPDATE jobs SET state='running',lease_token=?,fence=fence+1,lease_until=?,heartbeat_at=?,attempt=attempt+1,updated_at=? WHERE id=(SELECT j.id FROM jobs j JOIN episodes e ON e.id=j.episode_id WHERE j.owner_user_id=? AND e.owner_user_id=? AND ((j.state IN ('queued','retry_wait') AND j.next_run_at<=?) OR (j.state='running' AND j.lease_until<?)) AND (j.kind='cleanup' OR e.deleted_at IS NULL) ORDER BY j.priority DESC,j.created_at ASC LIMIT 1) RETURNING *",token,until,t,t,ownerId,ownerId,t,t);
+  const row=await one("UPDATE jobs SET state='running',lease_token=?,fence=fence+1,lease_until=?,heartbeat_at=?,attempt=attempt+1,updated_at=? WHERE id=(SELECT j.id FROM jobs j JOIN episodes e ON e.id=j.episode_id WHERE j.owner_user_id=? AND e.owner_user_id=? AND ((j.state IN ('queued','retry_wait') AND j.next_run_at<=?) OR (j.state='running' AND j.lease_until<?)) AND (j.kind='cleanup' OR e.deleted_at IS NULL) AND (j.kind<>'episode' OR NOT EXISTS (SELECT 1 FROM jobs active WHERE active.owner_user_id=j.owner_user_id AND active.kind='episode' AND active.id<>j.id AND active.state='running' AND active.lease_until>?)) ORDER BY j.priority DESC,j.created_at ASC LIMIT 1) RETURNING *",token,until,t,t,ownerId,ownerId,t,t,t);
   return reply({job:row?{id:row.id,kind:row.kind,episodeId:row.episode_id,stage:row.stage,attempt:row.attempt,leaseToken:row.lease_token,fence:row.fence,checkpoint:parsed(row.checkpoint_json,{})}:null});
  }
  if(parts[0]==="jobs"&&parts.length>=2){
@@ -29,6 +29,14 @@ export async function handleInternal(request:Request,parts:string[]):Promise<Res
    const until=new Date(Date.now()+120000).toISOString();
    await run("UPDATE jobs SET lease_until=?,heartbeat_at=?,updated_at=? WHERE id=? AND lease_token=? AND fence=?",until,now(),now(),jid,l.leaseToken,l.fence);
    return reply({leaseUntil:until});
+  }
+  if(parts[2]==="yield"&&method==="POST"){
+   const l=checked(lease,await bodyJson(request));const job=await validateLease(jid,l.leaseToken,l.fence);
+   if(job.kind!=="episode")return reply({yielded:false});
+   const waiting=await one("SELECT id FROM jobs WHERE owner_user_id=? AND kind='answer' AND state IN ('queued','retry_wait') AND next_run_at<=? LIMIT 1",job.owner_user_id,now());
+   if(!waiting)return reply({yielded:false});
+   const t=now();await run("UPDATE jobs SET state='queued',lease_token=NULL,lease_until=NULL,attempt=max(0,attempt-1),next_run_at=?,updated_at=? WHERE id=? AND lease_token=? AND fence=?",t,t,jid,l.leaseToken,l.fence);
+   return reply({yielded:true});
   }
   if(parts[2]==="input"&&method==="GET"){
    const job=await active(request,jid);
@@ -101,7 +109,8 @@ export async function handleInternal(request:Request,parts:string[]):Promise<Res
     const message=await one("SELECT * FROM messages WHERE id=? AND owner_user_id=? AND episode_id=? AND role='user'",data.messageId,job.owner_user_id,job.episode_id);
     if(!message)throw new ApiError("message_not_found",404,"Question not found");
     commands.push(db().prepare("UPDATE messages SET state='complete' WHERE id=?").bind(message.id));
-    if(message.asset_id){
+    const retention=await one("SELECT retain_recordings FROM owner_settings WHERE owner_user_id=?",job.owner_user_id);
+    if(message.asset_id&&!retention?.retain_recordings){
      const recording=await one("SELECT object_key FROM assets WHERE id=? AND owner_user_id=? AND episode_id=? AND kind='recording'",message.asset_id,job.owner_user_id,job.episode_id);
      if(recording){await bucket().delete(recording.object_key);commands.push(db().prepare("UPDATE messages SET asset_id=NULL WHERE id=?").bind(message.id));commands.push(db().prepare("DELETE FROM assets WHERE id=? AND owner_user_id=?").bind(message.asset_id,job.owner_user_id));}
     }

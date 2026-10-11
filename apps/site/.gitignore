@@ -50,6 +50,10 @@ next-env.d.ts
 /.wrangler/
 # Checkout-local execution profile and tool state; never publish them.
 /.sites-runtime/
+/.sites-checkout/
+/.sites-checkout-*/
+/.dev.vars
+*.tsbuildinfo
 /.agents/
 /.codex/
 /outputs/

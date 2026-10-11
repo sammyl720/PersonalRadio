@@ -125,7 +125,7 @@ async function episode(l:Lease){
   const c=result.data;if(!Array.isArray(c.turns)||!c.turns.length)throw new Error("invalid_chapter");
   const allowed=new Set(input.sources.map(x=>x.id));for(const turn of c.turns){if(turn.speaker<0||turn.speaker>=ep.personaSnapshot.length||turn.sourceIds.some((id:string)=>!allowed.has(id)))throw new Error("invalid_chapter_evidence");}
   const spoken=c.turns.map((x:any)=>x.text).join(" ");if(countWords(spoken)<perChapter*0.55)throw new Error("chapter_too_short");
-  const chapter={id:randomUUID(),ordinal:i,title:c.title||topic.title,turns:c.turns.map((x:any)=>({speaker:x.speaker,text:x.text})),sourceIds:[...new Set(c.turns.flatMap((x:any)=>x.sourceIds))]};
+  const chapter={id:randomUUID(),ordinal:i,title:c.title||topic.title,turns:c.turns.map((x:any)=>({speaker:x.speaker,text:x.text,sourceIds:x.sourceIds})),sourceIds:[...new Set(c.turns.flatMap((x:any)=>x.sourceIds))]};
   await checkpoint(l,"chapter",{writtenChapters:i+1},{chapter});await usage(l,"openai",result.model,"chapter",result.usage,result.requestId);
   input=await jobInput(l);
  }
@@ -170,6 +170,8 @@ async function episode(l:Lease){
    audioPaths.push(path);
    const old=times.get(chunk.chapterId);if(old)old.durationMs+=ms;else times.set(chunk.chapterId,{startMs:position,durationMs:ms});
    position+=ms;
+   const next=await api("jobs/"+l.id+"/yield","POST",{leaseToken:l.leaseToken,fence:l.fence});
+   if(next.yielded)return;
   }
   await checkpoint(l,"assembly",{chunkCount:chunks.length});
   const list=join(temp,"concat.txt");await writeFile(list,audioPaths.map(p=>"file '"+p.replaceAll("'","'\\''")+"'").join("\n"));
