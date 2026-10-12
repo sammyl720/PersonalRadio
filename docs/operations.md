@@ -2,7 +2,7 @@
 
 ## Monitor and recover
 
-The worker polls D1-backed jobs. Leases last 120 seconds with a 30 second heartbeat; a replacement worker can reclaim an expired lease. Start only one worker replica until concurrency policy has been reviewed. If an episode fails, inspect its job state and error code in the UI, fix the credential, provider, or rate issue, and select Retry. Completed speech chunks with the same cache key are reused. A provider timeout may have been billed even when the local job reports failure; compare provider request IDs and billing before repeating a paid run.
+The worker polls D1-backed jobs. Leases last 120 seconds with a 30 second heartbeat; a replacement worker can reclaim an expired lease. Start only one worker replica until concurrency policy has been reviewed. Transient provider failures receive up to three attempts per unchanged stage or chunk, with jittered backoff that respects `Retry-After`; quota errors stop for owner action. If an episode fails, inspect its job state and error code in the UI, fix the credential, provider, or rate issue, and select Retry. Completed speech chunks with the same cache key are reused. A provider timeout may have been billed even when the local job reports failure; uncertain speech attempts keep a conservative cost entry. Compare provider request IDs and billing before repeating a paid run.
 
 For a worker restart, stop the service, wait for any lease to expire, then restart it. Do not clear the D1 jobs table to recover a stalled run. If a job stays `running` beyond the lease, verify the Site service bearer and HMAC secret, then inspect Site Worker logs and worker logs. The Site must remain owner-private.
 

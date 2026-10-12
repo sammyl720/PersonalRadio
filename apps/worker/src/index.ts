@@ -45,6 +45,9 @@ async function checkpoint(l:Lease,stage:string,checkpoint:object={},more:object=
 async function usage(l:Lease,provider:string,model:string,operation:string,billableUnits:Record<string,number>,requestId:string|null,costStatus:"estimated"|"confirmed"|"unknown"|"uncertain"="unknown",estimatedUsd:number|null=null){
  return api("usage","POST",{jobId:l.id,leaseToken:l.leaseToken,fence:l.fence,provider,model,operation,billableUnits,requestId,costStatus,estimatedUsd});
 }
+async function uncertainUsage(l:Lease,error:unknown,model:string,operation:string,billableUnits:Record<string,number>,estimatedUsd:number|null){
+ if(error instanceof ProviderError&&error.uncertain){await usage(l,error.provider,model,operation,billableUnits,error.requestId,"uncertain",estimatedUsd);error.usageRecorded=true;}
+}
 async function upload(l:Lease,bytes:Uint8Array,kind:"chunk"|"answer"|"final"|"preview",durationMs:number,mime="audio/mpeg"){
  if(bytes.byteLength>100_000_000)throw new Error("asset_too_large");
  const init=await api("assets/initiate","POST",{jobId:l.id,kind,mime,bytes:bytes.byteLength,sha256:hex(bytes),durationMs},assigned(l));
@@ -208,7 +211,9 @@ async function episode(l:Lease){
    if(existing){await download(l,existing.asset_id,path);ms=existing.duration_ms;}
    else{
     const chunkId=randomUUID();await checkpoint(l,"voice",{chunkIndex:i,chunkCount:chunks.length},{chunk:{id:chunkId,ordinal:i,cacheKey:key}});
-    const result=await speech.synthesize(chunk.turns,ep.voice_profile,{timeoutMs:180000});
+    let result;
+    try{result=await speech.synthesize(chunk.turns,ep.voice_profile,{timeoutMs:180000});}
+    catch(error){const chars=chunk.turns.reduce((n,x)=>n+x.text.length,0);await uncertainUsage(l,error,ep.voice_profile==="latest"?env.VOICE_MODEL||"eleven_v4":env.ECONOMY_VOICE_MODEL||"eleven_flash_v2_5","speech_uncertain",{characters:chars},rate==null?null:Math.ceil(chars*rate/1000*1.2*100)/100);throw error;}
     await writeFile(path,result.data);ms=await duration(path);
     const assetId=await upload(l,result.data,"chunk",ms);
     await api("chunks/"+chunkId+"/complete","POST",{jobId:l.id,leaseToken:l.leaseToken,fence:l.fence,assetId,durationMs:ms,providerRequestId:result.requestId});
@@ -257,7 +262,9 @@ async function answer(l:Lease){
  const estimatedVoice=result.data.text.length*input.settings.voice_usd_per_thousand_characters/1000*1.2;
  if(estimatedVoice>input.settings.answer_budget_usd||estimatedVoice>(input.reservation?.reserved_usd||0))throw new Error("answer_budget_exceeded");
  const voiceId=input.episode.personaSnapshot[0]?.voiceId;if(!voiceId)throw new Error("invalid_voice");
- const audio=await speech.synthesize([{text:result.data.text,voiceId}],input.episode.voice_profile,{timeoutMs:120000});
+ let audio;
+ try{audio=await speech.synthesize([{text:result.data.text,voiceId}],input.episode.voice_profile,{timeoutMs:120000});}
+ catch(error){await uncertainUsage(l,error,input.episode.voice_profile==="latest"?env.VOICE_MODEL||"eleven_v4":env.ECONOMY_VOICE_MODEL||"eleven_flash_v2_5","answer_speech_uncertain",{characters:result.data.text.length},Math.ceil(estimatedVoice*100)/100);throw error;}
  const temp=await mkdtemp(join(tmpdir(),"personal-radio-answer-"));
  try{
   const path=join(temp,"answer.mp3");await writeFile(path,audio.data);const ms=await duration(path);
@@ -269,7 +276,9 @@ async function answer(l:Lease){
 async function preview(l:Lease){
  const input=await jobInput(l),sample=input.job.checkpoint.sample as string,voiceId=input.episode.personaSnapshot[0]?.voiceId;
  if(!sample||!voiceId||input.settings.voice_usd_per_thousand_characters==null)throw new Error("preview_unavailable");
- const result=await speech.synthesize([{text:sample,voiceId}],"latest",{timeoutMs:120000});
+ let result;
+ try{result=await speech.synthesize([{text:sample,voiceId}],"latest",{timeoutMs:120000});}
+ catch(error){await uncertainUsage(l,error,env.VOICE_MODEL||"eleven_v4","voice_preview_uncertain",{characters:sample.length},Math.ceil(sample.length*input.settings.voice_usd_per_thousand_characters/1000*1.2*100)/100);throw error;}
  const temp=await mkdtemp(join(tmpdir(),"personal-radio-preview-"));
  try{const path=join(temp,"preview.mp3");await writeFile(path,result.data);const ms=await duration(path);const assetId=await upload(l,result.data,"preview",ms);await usage(l,"elevenlabs",result.model,"voice_preview",result.usage,result.requestId,"estimated",Math.ceil(result.usage.characters*input.settings.voice_usd_per_thousand_characters/1000*100)/100);await api("jobs/"+l.id+"/complete","POST",{leaseToken:l.leaseToken,fence:l.fence,assetId});}
  finally{await rm(temp,{recursive:true,force:true});}
@@ -283,8 +292,9 @@ async function work(l:Lease){
   else await episode(l);
  }catch(error){
   const code=error instanceof ProviderError?error.code:error instanceof Error?error.message:"unknown";
-  const retryable=error instanceof ProviderError?[408,429,500,502,503,504].includes(error.status):["worker_stopping","fetch failed","ffprobe_failed"].includes(code);
-  try{await api("jobs/"+l.id+"/fail","POST",{leaseToken:l.leaseToken,fence:l.fence,errorCode:code.slice(0,80),retryable});}catch{}
+  const retryable=error instanceof ProviderError?error.code!=="quota_exhausted"&&(error.status===408||error.status===429||error.status>=500):["worker_stopping","fetch failed","ffprobe_failed"].includes(code);
+  if(error instanceof ProviderError&&error.uncertain&&!error.usageRecorded)try{await uncertainUsage(l,error,"unresolved","provider_request_uncertain",{},null)}catch{process.stderr.write("Uncertain usage recording failed\n")}
+  try{await api("jobs/"+l.id+"/fail","POST",{leaseToken:l.leaseToken,fence:l.fence,errorCode:code.slice(0,80),retryable,retryAfterMs:error instanceof ProviderError?error.retryAfterMs??undefined:undefined});}catch{}
   process.stderr.write("Job "+l.id+" failed: "+code+"\n");
  }finally{clearInterval(heartbeat);}
 }

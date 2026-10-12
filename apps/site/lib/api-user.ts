@@ -139,7 +139,8 @@ export async function handleUser(request:Request,parts:string[]):Promise<Respons
     const key=idempotencyKey(request),hash=await hashPayload({episodeId:eid}),old=await existingIdempotency(id,"retry:"+eid,key,hash);if(old)return reply(old,202);
     const job=await one("SELECT * FROM jobs WHERE owner_user_id=? AND episode_id=? AND kind='episode' ORDER BY created_at DESC LIMIT 1",id,eid);
     if(!job||job.state!=="failed")throw new ApiError("not_retryable",409,"Episode has no failed job");
-    const t=now();await run("UPDATE jobs SET state='queued',error_code=NULL,next_run_at=?,lease_token=NULL,updated_at=? WHERE id=? AND owner_user_id=? AND state='failed'",t,t,job.id,id);
+    const retryCp=parsed<any>(job.checkpoint_json,{});delete retryCp.lastFailureKey;delete retryCp.retryCount;
+    const t=now();await run("UPDATE jobs SET state='queued',error_code=NULL,checkpoint_json=?,next_run_at=?,lease_token=NULL,updated_at=? WHERE id=? AND owner_user_id=? AND state='failed'",j(retryCp),t,t,job.id,id);
     await run("UPDATE episodes SET state=?,updated_at=? WHERE id=? AND owner_user_id=?",job.stage==="voice"?"voicing":job.stage==="assembly"?"assembling":"queued",t,eid,id);
     const response={jobId:job.id,state:"queued"};await run("INSERT INTO idempotency_keys(owner_user_id,route,key,payload_hash,resource_id,response_json,expires_at) VALUES(?,?,?,?,?,?,?)",id,"retry:"+eid,key,hash,job.id,j(response),new Date(Date.now()+86400000).toISOString());return reply(response,202);
    }

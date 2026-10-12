@@ -124,11 +124,15 @@ export async function handleInternal(request:Request,parts:string[]):Promise<Res
    return reply({completed:true});
   }
   if(parts[2]==="fail"&&method==="POST"){
-   const data=checked(z.object({leaseToken:uuid,fence:z.number().int().positive(),errorCode:z.string().max(80),retryable:z.boolean().default(false)}),await bodyJson(request));
+   const data=checked(z.object({leaseToken:uuid,fence:z.number().int().positive(),errorCode:z.string().max(80),retryable:z.boolean().default(false),retryAfterMs:z.number().int().min(0).max(3600000).optional()}),await bodyJson(request));
    const job=await validateLease(jid,data.leaseToken,data.fence);
-   const retry=data.retryable&&job.attempt<3;
-   const next=new Date(Date.now()+Math.min(300000,30000*Math.pow(2,job.attempt-1))).toISOString();
-   await run("UPDATE jobs SET state=?,error_code=?,lease_token=NULL,next_run_at=?,updated_at=? WHERE id=? AND lease_token=? AND fence=?",retry?"retry_wait":"failed",data.errorCode,next,now(),jid,data.leaseToken,data.fence);
+   const cp=parsed<any>(job.checkpoint_json,{});
+   const failureKey=j({stage:job.stage,writtenChapters:cp.writtenChapters??null,chunkIndex:cp.chunkIndex??null,rewrittenOrdinals:cp.rewrittenOrdinals??null,reviewResolved:cp.reviewResolved??null});
+   const retryCount=cp.lastFailureKey===failureKey?Number(cp.retryCount||0)+1:1;
+   const retry=data.retryable&&retryCount<3;
+   const backoff=Math.min(300000,30000*Math.pow(2,retryCount-1))*(0.8+Math.random()*0.4);
+   const next=new Date(Date.now()+Math.max(backoff,data.retryAfterMs||0)).toISOString();
+   await run("UPDATE jobs SET state=?,error_code=?,checkpoint_json=?,lease_token=NULL,next_run_at=?,updated_at=? WHERE id=? AND lease_token=? AND fence=?",retry?"retry_wait":"failed",data.errorCode,j({...cp,lastFailureKey:failureKey,retryCount}),next,now(),jid,data.leaseToken,data.fence);
    if(job.kind==="episode")await run("UPDATE episodes SET state=?,updated_at=? WHERE id=? AND owner_user_id=?",retry?job.stage==="voice"?"voicing":"queued":"failed",now(),job.episode_id,job.owner_user_id);
    if(!retry)await releaseReservation(jid);
    return reply({state:retry?"retry_wait":"failed"});
