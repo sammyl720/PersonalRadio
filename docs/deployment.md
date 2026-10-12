@@ -10,7 +10,7 @@ The production worker runs as the `PersonalRadio` service in Railway project `62
 
 The worker service has `SITE_BASE_URL`, `SITES_SERVICE_BEARER`, `WORKER_HMAC_SECRET`, `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, and the selected model variables, including `REVIEW_MODEL=gpt-6.1-sol`. The HMAC secret matches the Site secret. Provider keys live only in worker variables, outside the browser, Site, and Git repository. Railway builds the root `apps/worker/Dockerfile` as a continuously running private service; no inbound public route is needed. New scripts receive a bounded factual review before paid speech synthesis; up to five flagged chapters can be rewritten once and reviewed again.
 
-In the app, choose actual account voices for the hosts and set the owner's effective voice rate and budgets. Create a short episode, approve the final quote if prompted, and verify its private audio and transcript.
+The owner chose the account voice Daniel – Steady Broadcaster for the default Calm Anchor host. Set the owner's effective voice rate and budgets in Settings before paid speech. Create a short episode, approve the final quote if prompted, and verify its private audio and transcript.
 
 The container installs Debian FFmpeg from the Bookworm package repository and prints `ffmpeg -version` during build. The successful production build installed FFmpeg 5.1.9-0+deb12u1. Local development used FFmpeg 8.1.2. Pin an image/package revision before a production audio regression rollout.
 
@@ -20,4 +20,4 @@ GitHub development branch: `codex/implement-personal-radio` at `https://github.c
 
 ## Verification still required
 
-Account rate check; worker restart recovery; a real news episode; a 60 minute recovery run; physical iPhone Safari and home screen PWA playback; MP3 export in airplane mode. Keep these pending until observed with the actual accounts and device.
+The local 60 minute fixture run wrote ten chapters, was interrupted at voice chunk 15 of 40, resumed after its lease expired, and finished with exactly 40 speech usage entries and a private MP3. The test episode was deleted after verification. Account rate check; a real news episode; a 60 minute run with paid providers; physical iPhone Safari and home screen PWA playback; MP3 export in airplane mode remain pending until observed with the actual accounts and device.
