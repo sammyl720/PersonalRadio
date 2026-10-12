@@ -29,14 +29,24 @@ export async function owner():Promise<{id:string;name:string;email:string}>{
 export async function initializeOwner(ownerId:string){
  const t=now();
  await run("INSERT OR IGNORE INTO owner_settings(owner_user_id,updated_at) VALUES(?,?)",ownerId,t);
- const existing=await one("SELECT count(*) n FROM personas WHERE owner_user_id=?",ownerId);
- if(Number(existing?.n)>0)return;
  const presets=[
  ["Calm Anchor","Even, measured delivery for news","Explain the facts plainly. Separate confirmed facts from claims.","steady","unhurried"],
  ["Curious Guide","Friendly explanations with useful examples","Ask the question a thoughtful listener would ask, then explain clearly.","inquisitive","natural"],
  ["Warm Companion","Relaxed conversation for longer listening","Keep the listener company with warmth and substance.","warm","relaxed"]
  ];
- await db().batch(presets.map(p=>db().prepare("INSERT INTO personas(id,owner_user_id,name,description,instructions,tone,pace,voice_id,voice_settings_json,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)").bind(rid(),ownerId,...p,null,"{}",1,t,t)));
+ const existing=await one("SELECT count(*) n FROM personas WHERE owner_user_id=?",ownerId);
+ if(Number(existing?.n)===0){
+  const inserts=await Promise.all(presets.map(async p=>{
+   const h=await sha256Hex(utf8("personal-radio-preset:"+ownerId+":"+p[0]));
+   const id=h.slice(0,8)+"-"+h.slice(8,12)+"-5"+h.slice(13,16)+"-a"+h.slice(17,20)+"-"+h.slice(20,32);
+   return db().prepare("INSERT OR IGNORE INTO personas(id,owner_user_id,name,description,instructions,tone,pace,voice_id,voice_settings_json,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,ownerId,...p,null,"{}",1,t,t);
+  }));
+  await db().batch(inserts);
+ }
+ for(const p of presets){
+  const rows=await all("SELECT id FROM personas WHERE owner_user_id=? AND name=? AND description=? AND instructions=? AND tone=? AND pace=? AND voice_id IS NULL AND voice_settings_json='{}' AND archived_at IS NULL ORDER BY created_at,id",ownerId,...p);
+  if(rows.length>1)await db().batch(rows.slice(1).map(row=>db().prepare("UPDATE personas SET archived_at=?,active=0 WHERE id=? AND owner_user_id=? AND voice_id IS NULL AND archived_at IS NULL").bind(t,row.id,ownerId)));
+ }
 }
 export async function requireEpisode(ownerId:string,id:string){
  const row=await one("SELECT * FROM episodes WHERE id=? AND owner_user_id=? AND deleted_at IS NULL",id,ownerId);

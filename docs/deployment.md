@@ -2,9 +2,9 @@
 
 ## Current state
 
-The owner-private Site is published at `https://personal-radio.sammyl.chatgpt.site` from Site project `appgprj_6acbb5f26e7881919f9640fe992ad3bf`. D1 and R2 are declared in `apps/site/.openai/hosting.json`; Sites applies the tracked D1 migration on publication. The Site has secret `WORKER_HMAC_SECRET` and the trusted, Site-scoped `OWNER_CHATGPT_USER_ID`. The latest private deployment includes both.
+The owner-private Site is published at `https://personal-radio.sammyl.chatgpt.site` from Site project `appgprj_6acbb5f26e7881919f9640fe992ad3bf`. D1 and R2 are declared in `apps/site/.openai/hosting.json`; Sites applies the tracked D1 migration on publication. The Site has secret `WORKER_HMAC_SECRET` and the trusted, Site-scoped `OWNER_CHATGPT_USER_ID`. Private deployment `appgdep_6acd1f404dfc8191b34d323e59eabaf6` succeeded on 2026-10-12. A first-request preset race was fixed and the owner view shows three unassigned hosts.
 
-The production worker runs as the `PersonalRadio` service in Railway project `624b66d4-023f-45fd-b2fa-f28c97297fea`, production environment `0e3abada-963b-4cc7-b727-615d995f53f2`. Deployment `bc9ae744-f0fa-410c-8e97-c8eaf36d686c` of Git commit `2514a69` reached `SUCCESS` with one running instance on 2026-10-12. The worker authenticated to the Site and populated its live voice catalog. Railway uses the `codex/implement-personal-radio` GitHub branch, root build context, and `/apps/worker/Dockerfile`. Watch paths cover the worker, shared packages, and root package manifests. It has one replica, restart on failure, and no public domain.
+The production worker runs as the `PersonalRadio` service in Railway project `624b66d4-023f-45fd-b2fa-f28c97297fea`, production environment `0e3abada-963b-4cc7-b727-615d995f53f2`. Deployment `89802632-7e29-40b2-a214-cf3276fadd20` of Git commit `77faa40` reached `SUCCESS` with one running instance on 2026-10-12. The worker authenticated to the Site and populated its live voice catalog. Railway uses the `codex/implement-personal-radio` GitHub branch, root build context, and `/apps/worker/Dockerfile`. The Dockerfile path is set explicitly on the service for automatic deployments. Watch paths cover the worker, shared packages, and root package manifests. It has one replica, restart on failure, and no public domain.
 
 ## Production configuration
 
