@@ -6,7 +6,11 @@ export class FixtureOpenAI implements ResearchProvider,TextProvider{
  async research():Promise<ProviderResult<{text:string;sources:{url:string;title:string|null}[]}>>{return result({text:"Fixture research: no real news retrieval. This mode is for local testing only.",sources:[{url:"https://example.com/fixture-source",title:"Fixture source"}]},"fixture-research")}
  async generateStructured<T>(prompt:string,_schema:object,name:string):Promise<ProviderResult<T>>{
   if(name==="radio_outline"){const count=Number(prompt.match(/Return exactly (\d+) chapters/)?.[1]||4);return result({title:"Fixture program",chapters:Array.from({length:count},(_,i)=>({title:"Chapter "+(i+1),focus:"An illustrative step in the explanation"}))} as T,"fixture-writing")}
-  if(name==="radio_chapter"){
+  if(name==="radio_review"){
+   const needsRewrite=prompt.includes("fixture review rewrite")&&prompt.includes("Phase: initial");
+   return result((needsRewrite?{approved:false,issues:[{chapterOrdinal:0,reason:"Fixture issue to exercise the bounded rewrite path."}]}:{approved:true,issues:[]}) as T,"fixture-review");
+  }
+  if(name==="radio_chapter"||name==="radio_chapter_rewrite"){
    const target=Number(prompt.match(/Aim for (\d+) spoken words/)?.[1]||400),words=example.split(/\s+/).length;
    const blocks=Array(Math.ceil(target/words)).fill(example);
    const personaCount=JSON.parse(prompt.match(/Personas: (\[[^\n]*\])/)?.[1]||"[]").length;

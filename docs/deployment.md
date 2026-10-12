@@ -8,7 +8,7 @@ The production worker runs as the `PersonalRadio` service in Railway project `62
 
 ## Production configuration
 
-The worker service has `SITE_BASE_URL`, `SITES_SERVICE_BEARER`, `WORKER_HMAC_SECRET`, `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, and the selected model variables. The HMAC secret matches the Site secret. Provider keys live only in worker variables, outside the browser, Site, and Git repository. Railway builds the root `apps/worker/Dockerfile` as a continuously running private service; no inbound public route is needed.
+The worker service has `SITE_BASE_URL`, `SITES_SERVICE_BEARER`, `WORKER_HMAC_SECRET`, `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, and the selected model variables, including `REVIEW_MODEL=gpt-6.1-sol`. The HMAC secret matches the Site secret. Provider keys live only in worker variables, outside the browser, Site, and Git repository. Railway builds the root `apps/worker/Dockerfile` as a continuously running private service; no inbound public route is needed. New scripts receive a bounded factual review before paid speech synthesis; up to five flagged chapters can be rewritten once and reviewed again.
 
 In the app, choose actual account voices for the hosts and set the owner's effective voice rate and budgets. Create a short episode, approve the final quote if prompted, and verify its private audio and transcript.
 

@@ -18,7 +18,7 @@ test("local fixture worker completes a private episode, playback, and answer",{s
   await call("settings","PATCH",{voiceUsdPerThousandCharacters:0.01});
   const personas=(await call("personas")).data.items;assert.ok(personas.length>=2);
   for(const [index,p] of personas.slice(0,2).entries()){const saved=await call("personas/"+p.id,"PATCH",{...p,voiceId:fixtureVoices[index].id});assert.equal(saved.response.status,200)}
-  const input={mode:"explainer",prompt:"Explain how a steam turbine converts heat into useful work",targetMinutes:10,primaryPersonaId:personas[0].id,secondaryPersonaId:personas[1].id,language:"English",freshnessHours:24,sourceUrls:[],sourceNotes:"",voiceProfile:"latest",interactionEnabled:true};
+  const input={mode:"explainer",prompt:"Explain how a steam turbine converts heat into useful work (fixture review rewrite)",targetMinutes:10,primaryPersonaId:personas[0].id,secondaryPersonaId:personas[1].id,language:"English",freshnessHours:24,sourceUrls:[],sourceNotes:"",voiceProfile:"latest",interactionEnabled:true};
   const key=crypto.randomUUID();let episodeId;
   try{
     const created=await call("episodes","POST",input,{"Idempotency-Key":key});assert.equal(created.response.status,202);episodeId=created.data.episodeId;
@@ -36,6 +36,11 @@ test("local fixture worker completes a private episode, playback, and answer",{s
       await new Promise(resolve=>setTimeout(resolve,1000));
     }
     assert.equal(detail.episode.state,"ready");assert.equal(detail.chapters.length,4);
+    assert.equal(detail.jobs[0].checkpoint.reviewResolved,true);
+    assert.deepEqual(detail.jobs[0].checkpoint.rewrittenOrdinals,[0]);
+    assert.ok(detail.usage.some(event=>event.operation==="script_review_initial"));
+    assert.ok(detail.usage.some(event=>event.operation==="chapter_rewrite"));
+    assert.ok(detail.usage.some(event=>event.operation==="script_review_final"));
     assert.equal(detail.episode.personaSnapshot.length,2);
     assert.notEqual(detail.episode.personaSnapshot[0].voiceId,detail.episode.personaSnapshot[1].voiceId);
     assert.ok(detail.chapters.some(c=>c.turns.some(turn=>turn.speaker===1)),"the second host speaks");
