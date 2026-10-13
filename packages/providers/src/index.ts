@@ -21,7 +21,7 @@ export function researchSources(output:any[]):{url:string;title:string|null}[]{
  }
  return [...(cited.size?cited:searched).values()].slice(0,20);
 }
-function usableResearchUrl(value:unknown):value is string{
+export function usableResearchUrl(value:unknown):value is string{
  if(typeof value!=="string")return false;
  let url:URL;try{url=new URL(value)}catch{return false}
  if(url.protocol!=="https:")return false;
@@ -29,6 +29,7 @@ function usableResearchUrl(value:unknown):value is string{
  const parts=url.pathname.toLowerCase().split("/").filter(Boolean);
  if(parts.length<2)return false;
  if(parts.some(part=>/^(archives?|sitemaps?|schedules?|categories|topics|tags|magazine)$/i.test(part)))return false;
+ if(parts.some((part,index)=>part==="page"&&/^\d+$/.test(parts[index+1]||"")))return false;
  if(/^(all|index|home|20\d\d|\d\d)$/.test(parts.at(-1)!))return false;
  return true;
 }

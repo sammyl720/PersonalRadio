@@ -17,6 +17,7 @@ test("research keeps evidence citations instead of unrelated search results",()=
   assert.deepEqual(researchSources([{action:{sources:[
     {url:"https://wspartners.bbc.com/schedules/bbc_world_service_europe/week/2026-10-10"},
     {url:"https://www.theguardian.com/world/2026/oct/13/all"},
+    {url:"https://about.fb.com/news/page/189/?utm_source=openai"},
     {url:"https://apnews.com/article/23aa01c0c6922fbf0b564a0ff9b2c8e5"},
     {url:"https://mediacenter.imf.org/press-briefings/financial-stability-report"},
     {url:"https://www.reddit.com/r/news/comments/example"}
