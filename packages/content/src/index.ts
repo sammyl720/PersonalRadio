@@ -8,6 +8,19 @@ export function estimateEpisodeUsd(minutes:number, rate:number|null, reserve=0.2
   return Math.ceil(estimateVoiceCharacters(minutes)*rate/1000*(1+reserve)*100)/100;
 }
 export function countWords(text:string) { return (text.trim().match(/\b[\p{L}\p{N}][\p{L}\p{N}'’-]*\b/gu) ?? []).length; }
+export function repeatedChapterOrdinals(chapters:{ordinal:number;spokenText:string}[],passageWords=40):number[]{
+  const seen=new Map<string,{ordinal:number;offset:number}>(),repeated=new Set<number>();
+  for(const chapter of chapters){
+    const words=(chapter.spokenText.toLowerCase().match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu)??[]);
+    for(let offset=0;offset+passageWords<=words.length;offset++){
+      const passage=words.slice(offset,offset+passageWords).join(" ");
+      const first=seen.get(passage);
+      if(first&&(first.ordinal!==chapter.ordinal||offset-first.offset>=passageWords))repeated.add(chapter.ordinal);
+      else if(!first)seen.set(passage,{ordinal:chapter.ordinal,offset});
+    }
+  }
+  return [...repeated];
+}
 export function splitTurns<T extends {text:string; voiceId:string}>(turns:T[], maxCharacters=1700): T[][] {
   const result:T[][]=[]; let current:T[]=[]; let length=0;
   const flush=()=>{if(current.length){result.push(current);current=[];length=0;}};

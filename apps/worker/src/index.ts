@@ -9,7 +9,7 @@ import { Readable } from "node:stream";
 import { OpenAIAdapter, ElevenLabsAdapter, ProviderError } from "../../../packages/providers/src/index.ts";
 import type { ResearchProvider, TextProvider, SpeechProvider, TranscriptionProvider } from "../../../packages/providers/src/index.ts";
 import { FixtureOpenAI, FixtureSpeech } from "./fixtures.ts";
-import { countWords, estimateEpisodeUsd, splitTurns } from "../../../packages/content/src/index.ts";
+import { countWords, estimateEpisodeUsd, repeatedChapterOrdinals, splitTurns } from "../../../packages/content/src/index.ts";
 
 const env=process.env;
 for(const key of ["WORKER_HMAC_SECRET","SITE_BASE_URL"] as const)if(!env[key])throw new Error("Missing "+key);
@@ -89,7 +89,7 @@ async function execute(command:string,args:string[]){
 async function duration(path:string){return new Promise<number>((resolve,reject)=>{const child=spawn("ffprobe",["-v","error","-show_entries","format=duration","-of","default=noprint_wrappers=1:nokey=1",path]);let output="";child.stdout.on("data",x=>output+=x);child.on("error",reject);child.on("close",code=>code===0?resolve(Math.round(Number(output)*1000)):reject(new Error("ffprobe_failed")))});}
 function schema(props:Record<string,any>){return {type:"object",properties:props,required:Object.keys(props),additionalProperties:false};}
 const outlineSchema=schema({title:{type:"string"},chapters:{type:"array",items:schema({title:{type:"string"},focus:{type:"string"}})}});
-const chapterSchema=schema({title:{type:"string"},turns:{type:"array",items:schema({speaker:{type:"integer"},text:{type:"string"},sourceIds:{type:"array",items:{type:"string"}}})}});
+function chapterSchema(sourceIds:string[]){return schema({title:{type:"string"},turns:{type:"array",items:schema({speaker:{type:"integer"},text:{type:"string"},sourceIds:{type:"array",items:sourceIds.length?{type:"string",enum:sourceIds}:{type:"string"}}})}});}
 const reviewSchema=schema({approved:{type:"boolean"},issues:{type:"array",items:schema({chapterOrdinal:{type:"integer"},reason:{type:"string"}})}});
 const answerSchema=schema({text:{type:"string"}});
 type ReviewIssue={chapterOrdinal:number;reason:string};
@@ -108,6 +108,19 @@ async function reviewScript(l:Lease,input:Input,phase:"initial"|"final"){
 }
 function current(input:Input){return input.episode.mode==="news"||/\b(today|latest|current|recent|this week|breaking)\b/i.test(input.episode.prompt);}
 function voice(input:Input,speaker:number){return input.episode.personaSnapshot[speaker]?.voiceId||input.episode.personaSnapshot[0]?.voiceId;}
+function checkScript(input:Input,expectedChapters:number,minimumChapterWords:number){
+ const allowed=new Set(input.sources.map(x=>x.id));
+ if(input.chapters.length!==expectedChapters)throw new Error("missing_chapter");
+ for(let ordinal=0;ordinal<expectedChapters;ordinal++){
+  const chapter=input.chapters.find(x=>x.ordinal===ordinal);
+  if(!chapter||!Array.isArray(chapter.turns)||!chapter.turns.length)throw new Error("missing_chapter");
+  if(countWords(chapter.spoken_text)<minimumChapterWords)throw new Error("chapter_too_short");
+  for(const turn of chapter.turns){
+   if(!Number.isInteger(turn.speaker)||turn.speaker<0||turn.speaker>=input.episode.personaSnapshot.length||typeof turn.text!=="string"||!turn.text.trim()||!Array.isArray(turn.sourceIds)||turn.sourceIds.some((id:string)=>!allowed.has(id)))throw new Error("invalid_chapter_evidence");
+  }
+ }
+ return repeatedChapterOrdinals(input.chapters.map(c=>({ordinal:c.ordinal,spokenText:c.spoken_text})));
+}
 async function episode(l:Lease){
  let input=await jobInput(l);const ep=input.episode,cp={...l.checkpoint};
  if(ep.mode==="news"&&!cp.research){
@@ -139,8 +152,8 @@ async function episode(l:Lease){
  for(let i=0;i<cp.outline.chapters.length;i++){
   if(input.chapters.some(x=>x.ordinal===i))continue;
   const topic=cp.outline.chapters[i],previous=input.chapters.map(x=>x.title).join("; ");
-  const prompt="Write chapter "+(i+1)+" of "+cp.outline.chapters.length+" of an original spoken program.\nOverall request: "+ep.prompt+"\nChapter title: "+topic.title+". Focus: "+topic.focus+"\nAim for "+perChapter+" spoken words in this chapter. Give concrete explanations, context and examples; no filler or repeated welcome. Natural language for listening. Never read URLs, citation codes, or invented quotes aloud. Facts should be careful and attributable. Two host mode: speaker 0 leads and speaker 1 asks useful follow-up questions. Single host mode: all speaker values 0. Allowed source IDs: "+JSON.stringify(input.sources.map(x=>x.id))+". Cite only these IDs in sourceIds; empty array if no source. Evidence digest: "+(cp.research||"No fresh evidence retrieved; avoid current factual claims.")+"\nPreviously covered: "+previous+"\nPersonas: "+JSON.stringify(ep.personaSnapshot.map((x:any)=>({name:x.name,instructions:x.instructions})))+"\nThis chapter should be continuous spoken material, not a terse summary.";
-  const result=await openai.generateStructured<any>(prompt,chapterSchema,"radio_chapter",{timeoutMs:180000});
+  const prompt="Write chapter "+(i+1)+" of "+cp.outline.chapters.length+" of an original spoken program.\nOverall request: "+ep.prompt+"\nChapter title: "+topic.title+". Focus: "+topic.focus+"\nAim for "+perChapter+" spoken words in this chapter. Give concrete explanations, context and examples; no filler or repeated welcome. Natural language for listening. Never read URLs, citation codes, or invented quotes aloud. Facts should be careful and attributable. Two host mode: speaker 0 leads and speaker 1 asks useful follow-up questions. Single host mode: all speaker values 0. Allowed source IDs with their URLs: "+JSON.stringify(input.sources.map(x=>({id:x.id,url:x.url,title:x.title})))+". Cite only a listed ID when the evidence digest supports that claim; otherwise use an empty sourceIds array. Evidence digest: "+(cp.research||"No fresh evidence retrieved; avoid current factual claims.")+"\nPreviously covered: "+previous+"\nPersonas: "+JSON.stringify(ep.personaSnapshot.map((x:any)=>({name:x.name,instructions:x.instructions})))+"\nThis chapter should be continuous spoken material, not a terse summary.";
+  const result=await openai.generateStructured<any>(prompt,chapterSchema(input.sources.map(x=>x.id)),"radio_chapter",{timeoutMs:180000});
   const c=result.data;if(!Array.isArray(c.turns)||!c.turns.length)throw new Error("invalid_chapter");
   const allowed=new Set(input.sources.map(x=>x.id));for(const turn of c.turns){if(turn.speaker<0||turn.speaker>=ep.personaSnapshot.length||turn.sourceIds.some((id:string)=>!allowed.has(id)))throw new Error("invalid_chapter_evidence");}
   const spoken=c.turns.map((x:any)=>x.text).join(" ");if(countWords(spoken)<perChapter*0.55)throw new Error("chapter_too_short");
@@ -150,9 +163,11 @@ async function episode(l:Lease){
  }
  input=await jobInput(l);
  if(input.chapters.reduce((sum,x)=>sum+countWords(x.spoken_text),0)<wordsTarget*0.75)throw new Error("script_too_short");
+ const deterministicRepeats=checkScript(input,cp.outline.chapters.length,perChapter*0.55);
  if(!cp.reviewResolved&&!cp.scriptFrozen&&!input.chunks.some(x=>x.state==="complete")){
   if(!Array.isArray(cp.reviewIssues)){
    const issues=await reviewScript(l,input,"initial");
+   for(const chapterOrdinal of deterministicRepeats)if(!issues.some(x=>x.chapterOrdinal===chapterOrdinal))issues.push({chapterOrdinal,reason:"A passage of at least 40 spoken words repeats. Rewrite this chapter to remove the duplicate material."});
    cp.reviewIssues=issues;cp.rewrittenOrdinals=[];
    await checkpoint(l,"check",{reviewIssues:issues,rewrittenOrdinals:[]});
   }
@@ -162,7 +177,7 @@ async function episode(l:Lease){
    const previous=input.chapters.find(c=>c.ordinal===issue.chapterOrdinal);
    if(!previous)throw new Error("invalid_review");
    const prompt="Rewrite this one chapter to fix the reviewer issue while preserving its substantial spoken length, focus, and natural listening style. Change other content only as needed. Never invent evidence, quotes, or current facts. Do not read URLs or citation IDs aloud. Return the chapter title and turns.\nOverall request: "+ep.prompt+"\nReviewer issue: "+issue.reason+"\nChapter ordinal: "+issue.chapterOrdinal+"\nChapter: "+JSON.stringify({title:previous.title,turns:previous.turns})+"\nEvidence digest: "+(cp.research||"No fresh research was performed.")+"\nAllowed source IDs and URLs: "+JSON.stringify(input.sources.map(x=>({id:x.id,url:x.url})))+"\nPersonas: "+JSON.stringify(ep.personaSnapshot.map((x:any)=>({name:x.name,instructions:x.instructions})))+"\nAim for "+perChapter+" spoken words; single host uses only speaker 0, two host mode can use speaker 0 and 1.";
-   const result=await reviewer.generateStructured<any>(prompt,chapterSchema,"radio_chapter_rewrite",{timeoutMs:180000});
+   const result=await reviewer.generateStructured<any>(prompt,chapterSchema(input.sources.map(x=>x.id)),"radio_chapter_rewrite",{timeoutMs:180000});
    const c=result.data,allowed=new Set(input.sources.map(x=>x.id));
    if(!Array.isArray(c?.turns)||!c.turns.length||typeof c.title!=="string"||!c.title.trim()||c.title.length>200)throw new Error("invalid_rewrite");
    for(const turn of c.turns){if(!Number.isInteger(turn.speaker)||turn.speaker<0||turn.speaker>=ep.personaSnapshot.length||typeof turn.text!=="string"||!turn.text.trim()||turn.text.length>12000||!Array.isArray(turn.sourceIds)||turn.sourceIds.some((id:string)=>!allowed.has(id)))throw new Error("invalid_rewrite");}
@@ -175,11 +190,13 @@ async function episode(l:Lease){
   }
   if(cp.reviewIssues.length){
    const remaining=await reviewScript(l,input,"final");
+   for(const chapterOrdinal of checkScript(input,cp.outline.chapters.length,perChapter*0.55))if(!remaining.some(x=>x.chapterOrdinal===chapterOrdinal))remaining.push({chapterOrdinal,reason:"Repeated spoken passage remains."});
    if(remaining.length){await checkpoint(l,"check",{reviewRemaining:remaining});throw new Error("review_unresolved");}
   }
   cp.reviewResolved=true;await checkpoint(l,"check",{reviewResolved:true});
   input=await jobInput(l);
  }
+ if(checkScript(input,cp.outline.chapters.length,perChapter*0.55).length)throw new Error("review_unresolved");
  const totalWords=input.chapters.reduce((sum,x)=>sum+countWords(x.spoken_text),0);
  if(totalWords<wordsTarget*0.75)throw new Error("script_too_short");
  const allTurns=input.chapters.flatMap(c=>c.turns),characters=allTurns.reduce((n,x)=>n+x.text.length,0);

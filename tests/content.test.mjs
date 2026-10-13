@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { estimateEpisodeUsd, estimateVoiceCharacters, parseSingleRange, splitTurns, countWords } from "../packages/content/src/index.ts";
+import { estimateEpisodeUsd, estimateVoiceCharacters, parseSingleRange, splitTurns, countWords, repeatedChapterOrdinals } from "../packages/content/src/index.ts";
 import { createEpisodeSchema, settingsPatchSchema } from "../packages/contracts/src/index.ts";
 
 test("voice estimate includes the retry reserve and preserves an unknown rate", () => {
@@ -26,6 +26,19 @@ test("speech chunks preserve voices and respect the character ceiling", () => {
   assert.deepEqual(chunks.flat().map(turn=>turn.voiceId),["host","host","guest"]);
   assert.throws(()=>splitTurns([{voiceId:"host",text:"A sentence that is much too long."}],10));
   assert.equal(countWords("one two three"),3);
+});
+
+test("long repeated spoken passages are attributed to the later chapter", () => {
+  const words=Array.from({length:45},(_,i)=>`word${i}`).join(" ");
+  assert.deepEqual(repeatedChapterOrdinals([
+    {ordinal:0,spokenText:`Opening. ${words}`},
+    {ordinal:1,spokenText:`A new introduction. ${words.toUpperCase()}!`}
+  ]),[1]);
+  assert.deepEqual(repeatedChapterOrdinals([
+    {ordinal:0,spokenText:"Welcome back. Here is a short transition."},
+    {ordinal:1,spokenText:"Welcome back. Here is a different argument."}
+  ]),[]);
+  assert.deepEqual(repeatedChapterOrdinals([{ordinal:0,spokenText:`${words}. ${words}`}]),[0]);
 });
 
 test("episode input rejects duplicate hosts and out of range duration", () => {
