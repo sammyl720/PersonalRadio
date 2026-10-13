@@ -55,6 +55,8 @@ test("local fixture worker completes a private episode, playback, and answer",{s
     const after=(await call("episodes/"+episodeId)).data.usage.length;assert.equal(after,before,"replay makes no provider call");
     const device=crypto.randomUUID();const saved=await call("episodes/"+episodeId+"/progress","PUT",{positionMs:1000,speed:1,deviceSessionId:device,expectedRevision:0});assert.equal(saved.data.revision,1);
     const stale=await call("episodes/"+episodeId+"/progress","PUT",{positionMs:2000,speed:1,deviceSessionId:device,expectedRevision:0});assert.equal(stale.response.status,409);
+    const concurrent=await Promise.all([2000,3000].map(positionMs=>call("episodes/"+episodeId+"/progress","PUT",{positionMs,speed:1,deviceSessionId:device,expectedRevision:1})));
+    assert.deepEqual(concurrent.map(x=>x.response.status).sort(),[200,409]);
     const question=await call("episodes/"+episodeId+"/questions","POST",{text:"What does the first chapter explain?",anchorMs:1000,chapterId:detail.chapters[0].id});assert.equal(question.response.status,202);
     let answer;
     for(let i=0;i<40;i++){

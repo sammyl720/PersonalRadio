@@ -11,8 +11,9 @@ export class FixtureOpenAI implements ResearchProvider,TextProvider{
    return result((needsRewrite?{approved:false,issues:[{chapterOrdinal:0,reason:"Fixture issue to exercise the bounded rewrite path."}]}:{approved:true,issues:[]}) as T,"fixture-review");
   }
   if(name==="radio_chapter"||name==="radio_chapter_rewrite"){
-   const target=Number(prompt.match(/Aim for (\d+) spoken words/)?.[1]||400),words=example.split(/\s+/).length;
-   const blocks=Array(Math.ceil(target/words)).fill(example);
+   const target=Number(prompt.match(/Aim for (\d+) spoken words/)?.[1]||400),words=example.split(/\s+/);
+   const ordinal=Number(prompt.match(/Chapter ordinal: (\d+)/)?.[1]??Number(prompt.match(/Write chapter (\d+)/)?.[1]||1)-1);
+   const blocks=Array.from({length:Math.ceil(target/22)},(_,segment)=>"In chapter "+(ordinal+1)+", example "+(segment+1)+", "+Array.from({length:18},(_,offset)=>words[(segment*18+offset)%words.length]).join(" ")+".");
    const personaCount=JSON.parse(prompt.match(/Personas: (\[[^\n]*\])/)?.[1]||"[]").length;
    const turns=personaCount>1?[{speaker:0,text:blocks.slice(0,Math.ceil(blocks.length/2)).join(" "),sourceIds:[]},{speaker:1,text:blocks.slice(Math.ceil(blocks.length/2)).join(" "),sourceIds:[]}]:[{speaker:0,text:blocks.join(" "),sourceIds:[]}];
    return result({title:"Fixture chapter",turns} as T,"fixture-writing")

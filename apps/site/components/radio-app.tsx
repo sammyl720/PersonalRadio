@@ -30,8 +30,9 @@ export function RadioApp({signOutPath}:{signOutPath:string}){
  const [current,setCurrent]=useState<Episode|null>(null),[playing,setPlaying]=useState(false),[position,setPosition]=useState(0),[duration,setDuration]=useState(0),[speed,setSpeed]=useState(1),[runMode,setRunMode]=useState(false),[sleep,setSleep]=useState(0),[chronologicalReplay,setChronologicalReplay]=useState(false);
  const [recording,setRecording]=useState(false),[micState,setMicState]=useState("idle"),[micSeconds,setMicSeconds]=useState(0);
  const [pendingAnswer,setPendingAnswer]=useState<{jobId:string;episodeId:string;anchorMs:number}|null>(null);
+ const [progressConflict,setProgressConflict]=useState<{episodeId:string;positionMs:number;revision:number}|null>(null);
  const audio=useRef<HTMLAudioElement|null>(null),recorder=useRef<MediaRecorder|null>(null),stream=useRef<MediaStream|null>(null),micCancelled=useRef(false),micTimer=useRef<ReturnType<typeof setInterval>|null>(null),sleepTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
- const deviceId=useRef(crypto.randomUUID()),revision=useRef<Record<string,number>>({}),lastSave=useRef(0),currentRef=useRef<Episode|null>(null),questionAnchor=useRef(0),answerReturnMs=useRef(0),answerMode=useRef(false),replayReturn=useRef(false),replayMessages=useRef<SavedMessage[]>([]),replayedAnswers=useRef(new Set<string>()),previewMode=useRef<{src:string;position:number;wasPlaying:boolean}|null>(null),restoringAudio=useRef(false),progressWriting=useRef(false),progressQueued=useRef<{episodeId:string;positionMs:number;speed:number}|null>(null);
+ const deviceId=useRef(crypto.randomUUID()),revision=useRef<Record<string,number>>({}),lastSave=useRef(0),currentRef=useRef<Episode|null>(null),questionAnchor=useRef(0),answerReturnMs=useRef(0),answerMode=useRef(false),replayReturn=useRef(false),replayMessages=useRef<SavedMessage[]>([]),replayedAnswers=useRef(new Set<string>()),previewMode=useRef<{src:string;position:number;wasPlaying:boolean}|null>(null),restoringAudio=useRef(false),progressWriting=useRef(false),progressQueued=useRef<{episodeId:string;positionMs:number;speed:number}|null>(null),progressConflictActive=useRef(false);
  useEffect(()=>{currentRef.current=current},[current]);
  const load=useCallback(async()=>{try{
   const [m,p,e,v]=await Promise.all([api<any>("me"),api<any>("personas"),api<any>("episodes"),api<any>("voices")]);
@@ -53,12 +54,16 @@ export function RadioApp({signOutPath}:{signOutPath:string}){
    const expected=revision.current[update.episodeId]||0;
    try{const response=await fetch("/api/episodes/"+update.episodeId+"/progress",{method:"PUT",keepalive:true,headers:{"Content-Type":"application/json"},body:JSON.stringify({...update,deviceSessionId:deviceId.current,expectedRevision:expected})});
     if(response.ok){const data:any=await response.json();revision.current[update.episodeId]=data.revision;}
-    else if(response.status===409){progressQueued.current=null;setNotice("Position changed on another device. Open the episode to choose where to resume.");}
+    else if(response.status===409){
+     progressQueued.current=null;progressConflictActive.current=true;audio.current?.pause();
+     try{const latest=await api<Detail>("episodes/"+update.episodeId);if(latest.progress)setProgressConflict({episodeId:update.episodeId,positionMs:latest.progress.position_ms,revision:latest.progress.revision});else{progressConflictActive.current=false;setNotice("Saved position changed. Reopen the episode to refresh it.")}}
+     catch{progressConflictActive.current=false;setNotice("Saved position changed. Reopen the episode to refresh it.")}
+    }
    }catch{}
   }}finally{progressWriting.current=false;}
  },[]);
  const saveProgress=useCallback((episode=currentRef.current,force=false)=>{
-  const a=audio.current;if(!episode||!a||answerMode.current||previewMode.current||restoringAudio.current)return;
+  const a=audio.current;if(!episode||!a||answerMode.current||previewMode.current||restoringAudio.current||progressConflictActive.current)return;
   const timestamp=Date.now();if(!force&&timestamp-lastSave.current<5000)return;
   lastSave.current=timestamp;
   progressQueued.current={episodeId:episode.id,positionMs:Math.round(a.currentTime*1000),speed:a.playbackRate};
@@ -83,7 +88,7 @@ export function RadioApp({signOutPath}:{signOutPath:string}){
  useEffect(()=>{const onVisibility=()=>{if(document.visibilityState==="hidden")saveProgress(undefined,true)};document.addEventListener("visibilitychange",onVisibility);return()=>document.removeEventListener("visibilitychange",onVisibility)},[saveProgress]);
  const resetReplay=(atMs:number)=>{replayedAnswers.current=new Set(replayMessages.current.filter(m=>m.anchor_ms<atMs).map(m=>m.id))};
  const playEpisode=async(ep:Episode,offsetMs?:number)=>{if(!ep.finalAssetId){setNotice("Audio is still being prepared.");return}const a=audio.current;if(!a)return;
-  answerMode.current=false;replayReturn.current=false;setCurrent(ep);currentRef.current=ep;a.src="/api/assets/"+ep.finalAssetId+"/audio";a.playbackRate=speed;a.load();
+  answerMode.current=false;replayReturn.current=false;progressConflictActive.current=false;setProgressConflict(null);setCurrent(ep);currentRef.current=ep;a.src="/api/assets/"+ep.finalAssetId+"/audio";a.playbackRate=speed;a.load();
   let start=offsetMs||0;try{const d=await api<Detail>("episodes/"+ep.id);revision.current[ep.id]=d.progress?.revision||0;replayMessages.current=d.messages.filter(m=>m.role==="assistant"&&m.asset_id).sort((a,b)=>a.anchor_ms-b.anchor_ms||a.created_at.localeCompare(b.created_at));if(offsetMs==null)start=d.progress?.position_ms||0}catch{replayMessages.current=[]}
   a.currentTime=start/1000;setPosition(start);resetReplay(start);
   try{await a.play();setPlaying(true)}catch{setNotice("Tap Play to start audio on this device.")}
@@ -91,6 +96,7 @@ export function RadioApp({signOutPath}:{signOutPath:string}){
  const togglePlay=async()=>{const a=audio.current;if(!a)return;if(!current){const ep=episodes.find(x=>x.state==="ready");if(ep)await playEpisode(ep);return}if(a.paused){try{await a.play();setPlaying(true)}catch{setNotice("Playback needs another tap.")}}else{a.pause();setPlaying(false);saveProgress(undefined,true)}};
  const seek=(delta:number)=>{const a=audio.current;if(!a||answerMode.current)return;a.currentTime=Math.max(0,Math.min(a.duration||Infinity,a.currentTime+delta));resetReplay(Math.round(a.currentTime*1000));saveProgress(undefined,true)};
  const jump=(ms:number)=>{const a=audio.current;if(!a||answerMode.current)return;a.currentTime=ms/1000;setPosition(ms);resetReplay(ms);saveProgress(undefined,true)};
+ const resolveProgressConflict=(useSaved:boolean)=>{const conflict=progressConflict;if(!conflict)return;revision.current[conflict.episodeId]=conflict.revision;progressConflictActive.current=false;setProgressConflict(null);if(useSaved){if(currentRef.current?.id===conflict.episodeId&&audio.current&&!answerMode.current){audio.current.currentTime=conflict.positionMs/1000;setPosition(conflict.positionMs);resetReplay(conflict.positionMs)}}else saveProgress(undefined,true)};
  const maybeReplayAnswer=(a:HTMLAudioElement)=>{if(!chronologicalReplay||answerMode.current||previewMode.current||!currentRef.current)return false;const now=Math.round(a.currentTime*1000);const next=replayMessages.current.find(m=>!replayedAnswers.current.has(m.id)&&m.anchor_ms<=now);if(!next?.asset_id)return false;replayedAnswers.current.add(next.id);saveProgress(undefined,true);answerReturnMs.current=now;replayReturn.current=true;answerMode.current=true;a.pause();a.src="/api/assets/"+next.asset_id+"/audio";a.play().catch(()=>setNotice("Saved answer ready. Tap Play to continue."));return true};
  const playSavedAnswer=(m:SavedMessage,ep:Episode)=>{if(!m.asset_id||!audio.current||!ep.finalAssetId)return;const a=audio.current;answerReturnMs.current=currentRef.current?.id===ep.id&&!answerMode.current?Math.round(a.currentTime*1000):m.anchor_ms;if(currentRef.current?.id!==ep.id){replayMessages.current=detail?.episode.id===ep.id?detail.messages.filter(x=>x.role==="assistant"&&x.asset_id).sort((x,y)=>x.anchor_ms-y.anchor_ms||x.created_at.localeCompare(y.created_at)):[];resetReplay(m.anchor_ms)}replayedAnswers.current.add(m.id);setCurrent(ep);currentRef.current=ep;replayReturn.current=false;answerMode.current=true;a.pause();a.src="/api/assets/"+m.asset_id+"/audio";a.play().catch(()=>setNotice("Tap Play to hear this answer."))};
  const chooseSpeed=(value:number)=>{setSpeed(value);if(audio.current)audio.current.playbackRate=value};
@@ -120,6 +126,7 @@ export function RadioApp({signOutPath}:{signOutPath:string}){
   <main className="content">
   {error&&<div className="banner error"><CircleHelp size={18}/><span>{error}</span><button onClick={()=>setError("")} aria-label="Dismiss"><X size={17}/></button></div>}
   {notice&&<div className="banner notice"><Check size={18}/><span>{notice}</span><button onClick={()=>setNotice("")} aria-label="Dismiss"><X size={17}/></button></div>}
+  {progressConflict&&<div className="banner notice progress-conflict" role="alert"><Clock3 size={18}/><span>Another device saved this episode at {time(progressConflict.positionMs)}. Where would you like to resume?</span><button type="button" onClick={()=>resolveProgressConflict(true)}>Use saved position</button><button type="button" onClick={()=>resolveProgressConflict(false)}>Keep this position</button></div>}
   {view==="create"&&<div className="page create-page">
    <div className="page-head"><p className="eyebrow"><span className="eyebrow-line"/> YOUR NEXT LISTEN</p><h1>What should we<br/><em>talk about?</em></h1><p>Turn a topic or today’s headlines into a thoughtful audio program, made just for you.</p></div>
    <div className="quick-prompts"><button onClick={()=>setForm({...form,mode:"news",prompt:"Give me a thoughtful roundup of today's technology and world news"})}><Sparkles size={16}/> Today’s news</button><button onClick={()=>setForm({...form,mode:"explainer",prompt:"Explain how jet engines work in a relaxed podcast"})}><BookOpen size={16}/> Learn something</button><button onClick={()=>setForm({...form,mode:"custom",prompt:""})}><Plus size={16}/> Start from scratch</button></div>

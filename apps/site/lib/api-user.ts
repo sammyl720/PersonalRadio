@@ -164,8 +164,8 @@ export async function handleUser(request:Request,parts:string[]):Promise<Respons
     const old=await one("SELECT revision,device_session_id FROM playback_progress WHERE owner_user_id=? AND episode_id=?",id,eid);
     if(old&&old.revision!==input.expectedRevision)throw new ApiError("stale_progress",409,"Playback position changed on another device");
     if(!old&&input.expectedRevision!==0)throw new ApiError("stale_progress",409,"Playback position changed on another device");
-    if(old)await run("UPDATE playback_progress SET position_ms=?,speed=?,device_session_id=?,revision=revision+1,updated_at=? WHERE owner_user_id=? AND episode_id=? AND revision=?",input.positionMs,input.speed,input.deviceSessionId,now(),id,eid,input.expectedRevision);
-    else await run("INSERT INTO playback_progress(owner_user_id,episode_id,position_ms,speed,device_session_id,revision,updated_at) VALUES(?,?,?,?,?,?,?)",id,eid,input.positionMs,input.speed,input.deviceSessionId,1,now());
+    const saved=old?await run("UPDATE playback_progress SET position_ms=?,speed=?,device_session_id=?,revision=revision+1,updated_at=? WHERE owner_user_id=? AND episode_id=? AND revision=?",input.positionMs,input.speed,input.deviceSessionId,now(),id,eid,input.expectedRevision):await run("INSERT INTO playback_progress(owner_user_id,episode_id,position_ms,speed,device_session_id,revision,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(owner_user_id,episode_id) DO NOTHING",id,eid,input.positionMs,input.speed,input.deviceSessionId,1,now());
+    if(saved.meta.changes!==1)throw new ApiError("stale_progress",409,"Playback position changed on another device");
     return reply({revision:input.expectedRevision+1});
    }
    if(parts[2]==="questions"&&method==="POST"){
