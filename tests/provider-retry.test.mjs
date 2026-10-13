@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { OpenAIAdapter, ProviderError, researchSources, retryAfterMs } from "../packages/providers/src/index.ts";
 
 test("research keeps evidence citations instead of unrelated search results",()=>{

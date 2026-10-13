@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
 const base=process.env.RADIO_TEST_BASE_URL;
-test("local fixture worker completes a private episode, playback, and answer",{skip:!base,timeout:180_000},async()=>{
+const fixtureTest=base?test:test.skip;
+fixtureTest("local fixture worker completes a private episode, playback, and answer",async()=>{
   const origin=new URL(base);
   assert.ok(["localhost","127.0.0.1"].includes(origin.hostname),"Fixture test runs only on loopback");
   const login=await fetch(new URL("/signin-with-chatgpt?return_to=/",origin),{redirect:"manual"});
@@ -92,4 +93,4 @@ test("local fixture worker completes a private episode, playback, and answer",{s
     assert.equal(cleanupStatus,404,"cleanup job and episode records were removed");
     assert.equal((await call("episodes/"+doomedId)).response.status,404);
   }finally{if(episodeId)await call("episodes/"+episodeId,"DELETE",{});if(doomedId)await call("episodes/"+doomedId,"DELETE",{});}
-});
+},180_000);

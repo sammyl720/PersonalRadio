@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { estimateEpisodeUsd, estimateVoiceCharacters, parseSingleRange, splitTurns, countWords, durationTempo, repeatedChapterOrdinals } from "../packages/content/src/index.ts";
 
 test("small tempo correction brings speech inside the duration tolerance",()=>{
