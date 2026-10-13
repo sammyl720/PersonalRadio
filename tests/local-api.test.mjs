@@ -19,7 +19,7 @@ test("local fixture worker completes a private episode, playback, and answer",{s
   const personas=(await call("personas")).data.items;assert.ok(personas.length>=2);
   for(const [index,p] of personas.slice(0,2).entries()){const saved=await call("personas/"+p.id,"PATCH",{...p,voiceId:fixtureVoices[index].id});assert.equal(saved.response.status,200)}
   const input={mode:"explainer",prompt:"Explain how a steam turbine converts heat into useful work (fixture review rewrite)",targetMinutes:10,primaryPersonaId:personas[0].id,secondaryPersonaId:personas[1].id,language:"English",freshnessHours:24,sourceUrls:[],sourceNotes:"",voiceProfile:"latest",interactionEnabled:true};
-  const key=crypto.randomUUID();let episodeId;
+  const key=crypto.randomUUID();let episodeId,doomedId;
   try{
     const created=await call("episodes","POST",input,{"Idempotency-Key":key});assert.equal(created.response.status,202);episodeId=created.data.episodeId;
     const repeated=await call("episodes","POST",input,{"Idempotency-Key":key});assert.equal(repeated.data.jobId,created.data.jobId);
@@ -68,5 +68,28 @@ test("local fixture worker completes a private episode, playback, and answer",{s
     assert.equal(answer.job.state,"completed");
     const conversation=(await call("episodes/"+episodeId+"/conversation")).data.items;
     assert.ok(conversation.some(x=>x.role==="assistant"&&x.asset_id));
-  }finally{if(episodeId)await call("episodes/"+episodeId,"DELETE",{});}
+    const long=await call("episodes","POST",{...input,prompt:"Explain a steam turbine in a long fixture program",targetMinutes:60},{"Idempotency-Key":crypto.randomUUID()});
+    assert.equal(long.response.status,202);doomedId=long.data.episodeId;
+    let reachedVoice=false;
+    for(let i=0;i<100;i++){
+      const d=(await call("episodes/"+doomedId)).data;
+      if(d.episode.state==="awaiting_approval"){
+        const quote=d.jobs.find(x=>x.state==="awaiting_approval").checkpoint.quoteVersion;
+        assert.equal((await call("episodes/"+doomedId+"/approve-cost","POST",{quoteVersion:quote})).response.status,202);
+      }
+      if(d.episode.state==="voicing"){reachedVoice=true;break}
+      assert.notEqual(d.episode.state,"failed",JSON.stringify(d.jobs.at(-1)));
+      await new Promise(resolve=>setTimeout(resolve,200));
+    }
+    assert.ok(reachedVoice,"fixture episode reached synthesis before deletion");
+    const removed=await call("episodes/"+doomedId,"DELETE",{});assert.equal(removed.response.status,202);
+    let cleanupStatus;
+    for(let i=0;i<100;i++){
+      cleanupStatus=(await call("jobs/"+removed.data.jobId)).response.status;
+      if(cleanupStatus===404)break;
+      await new Promise(resolve=>setTimeout(resolve,200));
+    }
+    assert.equal(cleanupStatus,404,"cleanup job and episode records were removed");
+    assert.equal((await call("episodes/"+doomedId)).response.status,404);
+  }finally{if(episodeId)await call("episodes/"+episodeId,"DELETE",{});if(doomedId)await call("episodes/"+doomedId,"DELETE",{});}
 });

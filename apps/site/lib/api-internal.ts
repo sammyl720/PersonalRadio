@@ -152,7 +152,11 @@ export async function handleInternal(request:Request,parts:string[]):Promise<Res
   const ep=await one("SELECT script_version FROM episodes WHERE id=? AND owner_user_id=?",job.episode_id,job.owner_user_id);
   const key=[job.owner_user_id,job.episode_id,ep.script_version,id].join("/");
   const upload=await bucket().createMultipartUpload(key,{httpMetadata:{contentType:input.mime}});
-  await run("INSERT INTO assets(id,owner_user_id,episode_id,object_key,kind,mime,sha256,duration_ms,multipart_state_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",id,job.owner_user_id,job.episode_id,key,input.kind,input.mime,input.sha256,input.durationMs,j({uploadId:upload.uploadId,parts:[],expectedBytes:input.bytes}),now());
+  const l=headerLease(request);
+  try{
+   const inserted=await run("INSERT INTO assets(id,owner_user_id,episode_id,object_key,kind,mime,sha256,duration_ms,multipart_state_json,created_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM jobs j JOIN episodes e ON e.id=j.episode_id WHERE j.id=? AND j.lease_token=? AND j.fence=? AND j.state='running' AND j.lease_until>? AND e.deleted_at IS NULL AND e.state NOT IN ('cancelled','deleting'))",id,job.owner_user_id,job.episode_id,key,input.kind,input.mime,input.sha256,input.durationMs,j({uploadId:upload.uploadId,parts:[],expectedBytes:input.bytes}),now(),job.id,l.leaseToken,l.fence,now());
+   if(inserted.meta.changes!==1)throw new ApiError("stale_lease",409,"Job lease expired or was replaced",true);
+  }catch(error){try{await upload.abort()}catch{}throw error}
   return reply({assetId:id,partSize:8*1024*1024});
  }
  if(parts[0]==="assets"&&parts.length>=3){
@@ -172,7 +176,9 @@ export async function handleInternal(request:Request,parts:string[]):Promise<Res
    const uploaded=await bucket().resumeMultipartUpload(asset.object_key,mp.uploadId).uploadPart(part,bytes);
    const count=bytes.byteLength;
    const partsList=(mp.parts as any[]).filter(x=>x.partNumber!==part);partsList.push({partNumber:part,etag:uploaded.etag,bytes:count});
-   await run("UPDATE assets SET multipart_state_json=? WHERE id=? AND owner_user_id=?",j({...mp,parts:partsList}),assetId,job.owner_user_id);
+   const l=headerLease(request);
+   const saved=await run("UPDATE assets SET multipart_state_json=? WHERE id=? AND owner_user_id=? AND EXISTS(SELECT 1 FROM jobs WHERE id=? AND lease_token=? AND fence=? AND state='running' AND lease_until>?)",j({...mp,parts:partsList}),assetId,job.owner_user_id,job.id,l.leaseToken,l.fence,now());
+   if(saved.meta.changes!==1){try{await bucket().resumeMultipartUpload(asset.object_key,mp.uploadId).abort()}catch{}throw new ApiError("stale_lease",409,"Job lease expired or was replaced",true)}
    return reply({partNumber:part,etag:uploaded.etag});
   }
   if(parts[2]==="complete"&&method==="POST"){
@@ -187,7 +193,9 @@ export async function handleInternal(request:Request,parts:string[]):Promise<Res
    const hash=createHash("sha256"),reader=object.body.getReader();let bytes=0;
    while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;hash.update(value);}
    if(bytes!==total||hash.digest("hex")!==asset.sha256){await bucket().delete(asset.object_key);throw new ApiError("checksum_mismatch",422,"Asset checksum mismatch");}
-   await run("UPDATE assets SET bytes=?,multipart_state_json=NULL WHERE id=? AND owner_user_id=?",total,assetId,job.owner_user_id);
+   const l=headerLease(request);
+   const saved=await run("UPDATE assets SET bytes=?,multipart_state_json=NULL WHERE id=? AND owner_user_id=? AND EXISTS(SELECT 1 FROM jobs j JOIN episodes e ON e.id=j.episode_id WHERE j.id=? AND j.lease_token=? AND j.fence=? AND j.state='running' AND j.lease_until>? AND e.deleted_at IS NULL AND e.state NOT IN ('cancelled','deleting'))",total,assetId,job.owner_user_id,job.id,l.leaseToken,l.fence,now());
+   if(saved.meta.changes!==1){await bucket().delete(asset.object_key);throw new ApiError("stale_lease",409,"Job lease expired or was replaced",true)}
    return reply({assetId,bytes:total});
   }
   if(parts[2]==="abort"&&method==="POST"){

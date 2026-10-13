@@ -23,7 +23,7 @@ node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1
 
 Start `npm run site:dev` and `npm run worker:dev` from the repository root in separate terminals. Visit `http://127.0.0.1:5173/signin-with-chatgpt?return_to=/` for the local mock owner. The local worker uses deterministic fixtures, so generation uses no paid provider calls.
 
-Assign a fixture voice to a persona and set a voice rate in Settings before creating an episode. Generation pauses after the script is written for approval when its final voice quote exceeds the initial reserved estimate. `npm test`, `npx tsc --noEmit -p apps/site/tsconfig.json`, and `npm run worker:check` run the code checks. The Sites build uses `node <sites-plugin-root>/scripts/build-site.mjs` from `apps/site`.
+Assign a fixture voice to a persona and set a voice rate in Settings before creating an episode. Generation pauses after the script is written for approval when its final voice quote exceeds the initial reserved estimate. `npm test`, `npm run site:build`, and `npm run worker:check` run the code checks. Run the full fixture integration test with `RADIO_TEST_BASE_URL=http://127.0.0.1:5173 npm test` while the local Site and worker are running.
 
 ## Hosted configuration
 
@@ -40,6 +40,8 @@ The default text model is `gpt-6-luna`; the voice profiles use ElevenLabs `eleve
 - The owner can cancel or delete an episode. Deletion queues cleanup of database records and R2 objects.
 - The Site uses private, no-store API responses. Recordings are deleted after transcription unless retention is enabled.
 - Browser playback behavior, iPhone installation, and provider billing should be checked with real accounts before relying on production output.
+
+See [deployment](docs/deployment.md) for the current private release and [acceptance checks](docs/acceptance.md) for the remaining paid and physical-device verification.
 
 ## API
 
