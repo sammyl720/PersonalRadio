@@ -4,7 +4,7 @@
 
 The owner-private Site is published at `https://personal-radio.sammyl.chatgpt.site` from Site project `appgprj_6acbb5f26e7881919f9640fe992ad3bf`. D1 and R2 are declared in `apps/site/.openai/hosting.json`; Sites applies the tracked D1 migration on publication. The Site has secret `WORKER_HMAC_SECRET` and the trusted, Site-scoped `OWNER_CHATGPT_USER_ID`. Private deployment `appgdep_6ace2e0779388191bb94c7510d2349ca` succeeded on 2026-10-13. The owner view shows three hosts.
 
-The production worker runs as the `PersonalRadio` service in Railway project `624b66d4-023f-45fd-b2fa-f28c97297fea`, production environment `0e3abada-963b-4cc7-b727-615d995f53f2`. Deployment `7dfb51f9-9c9e-43a2-871f-0a6c198c5cd5` of Git commit `f5ad253` reached `SUCCESS` on 2026-10-13. Railway uses the `codex/implement-personal-radio` GitHub branch, root build context, and `/apps/worker/Dockerfile`. Watch paths cover the worker, shared packages, and root package manifests. It has one replica, restart on failure, and no public domain.
+The production worker runs as the `PersonalRadio` service in Railway project `624b66d4-023f-45fd-b2fa-f28c97297fea`, production environment `0e3abada-963b-4cc7-b727-615d995f53f2`. Deployment `b90def42-d383-4d83-8c80-0a65b5611bcb` of Git commit `2e3975d` reached `SUCCESS` on 2026-10-13. Railway uses the `codex/implement-personal-radio` GitHub branch, root build context, and `/apps/worker/Dockerfile`. Watch paths cover the worker, shared packages, and root package manifests. It has one replica, restart on failure, and no public domain.
 
 ## Production configuration
 
