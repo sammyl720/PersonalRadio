@@ -10,17 +10,23 @@ export function retryAfterMs(value:string|null,at=Date.now()){if(!value)return n
 function providerFailure(provider:string,error:unknown,signal:AbortSignal):never{if(error instanceof ProviderError)throw error;throw new ProviderError(provider,signal.aborted?408:503,signal.aborted?"provider_timeout":"provider_network",signal.aborted?"Provider request timed out":"Provider connection failed",null,null,true);}
 async function checked(response:Response,provider:string){if(!response.ok){const data=await response.text();let detail:any;try{detail=JSON.parse(data)}catch{}const reported=String(detail?.error?.code||detail?.detail?.status||"");const code=/quota|billing_hard_limit/i.test(reported)?"quota_exhausted":"provider_http_"+response.status;throw new ProviderError(provider,response.status,code,data.slice(0,300),response.headers.get("request-id")||response.headers.get("x-request-id"),retryAfterMs(response.headers.get("retry-after")));}return response;}
 function outputText(response:any){return response.output_text||response.output?.flatMap((x:any)=>x.content||[]).filter((x:any)=>x.type==="output_text").map((x:any)=>x.text).join("")||""}
+export function researchSources(output:any[]):{url:string;title:string|null}[]{
+ const cited=new Map<string,{url:string;title:string|null}>(),searched=new Map<string,{url:string;title:string|null}>();
+ for(const item of output||[]){
+  for(const source of item.action?.sources||[])if(source.url?.startsWith("https://"))searched.set(source.url,{url:source.url,title:source.title||null});
+  for(const content of item.content||[])for(const annotation of content.annotations||[])if(annotation.url?.startsWith("https://")){
+   const existing=searched.get(annotation.url);
+   cited.set(annotation.url,{url:annotation.url,title:annotation.title||existing?.title||null});
+  }
+ }
+ return [...(cited.size?cited:searched).values()];
+}
 export class OpenAIAdapter implements ResearchProvider,TextProvider{
  constructor(private key:string,private researchModel="gpt-6-luna",private writingModel="gpt-6-luna"){}
  private async call(body:object,options:CallOptions){const t=signalFor(options);try{const r=await checked(await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Authorization":"Bearer "+this.key,"Content-Type":"application/json"},body:JSON.stringify(body),signal:t.signal}),"openai");return {value:await r.json() as any,requestId:r.headers.get("x-request-id")};}catch(error){providerFailure("openai",error,t.signal)}finally{t.done();}}
  async research(query:string,options:CallOptions={}):Promise<ProviderResult<{text:string;sources:{url:string;title:string|null}[]}>>{
-  const {value,requestId}=await this.call({model:this.researchModel,reasoning:{effort:"low"},tools:[{type:"web_search"}],tool_choice:"required",include:["web_search_call.action.sources"],input:query},options);
-  const sources=new Map<string,{url:string;title:string|null}>();
-  for(const item of value.output||[]){
-   for(const source of item.action?.sources||[]){if(source.url?.startsWith("https://"))sources.set(source.url,{url:source.url,title:source.title||null});}
-   for(const content of item.content||[]){for(const a of content.annotations||[]){if(a.url?.startsWith("https://"))sources.set(a.url,{url:a.url,title:a.title||null});}}
-  }
-  return {data:{text:outputText(value),sources:[...sources.values()]},requestId:requestId||value.id||null,usage:{inputTokens:value.usage?.input_tokens||0,outputTokens:value.usage?.output_tokens||0},model:this.researchModel};
+  const {value,requestId}=await this.call({model:this.researchModel,reasoning:{effort:"low"},tools:[{type:"web_search"}],tool_choice:"required",include:["web_search_call.action.sources"],input:query+"\nCite each substantive current claim with the direct article or official source URL. Avoid homepages, archive indexes, search pages, and unrelated results; mark unresolved facts clearly."},options);
+  return {data:{text:outputText(value),sources:researchSources(value.output||[])},requestId:requestId||value.id||null,usage:{inputTokens:value.usage?.input_tokens||0,outputTokens:value.usage?.output_tokens||0},model:this.researchModel};
  }
  async generateStructured<T>(prompt:string,schema:object,name:string,options:CallOptions={}):Promise<ProviderResult<T>>{
   const {value,requestId}=await this.call({model:this.writingModel,reasoning:{effort:"low"},input:prompt,text:{format:{type:"json_schema",name,strict:true,schema}}},options);

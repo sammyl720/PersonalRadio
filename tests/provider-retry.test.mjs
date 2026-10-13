@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OpenAIAdapter, ProviderError, retryAfterMs } from "../packages/providers/src/index.ts";
+import { OpenAIAdapter, ProviderError, researchSources, retryAfterMs } from "../packages/providers/src/index.ts";
+
+test("research keeps evidence citations instead of unrelated search results",()=>{
+  const output=[
+    {action:{sources:[{url:"https://example.com/archive",title:"Archive"},{url:"https://example.com/story",title:"Story"}]}},
+    {content:[{annotations:[{url:"https://example.com/story",title:"Direct report"},{url:"https://official.example/statement",title:"Statement"}]}]}
+  ];
+  assert.deepEqual(researchSources(output),[
+    {url:"https://example.com/story",title:"Direct report"},
+    {url:"https://official.example/statement",title:"Statement"}
+  ]);
+  assert.deepEqual(researchSources([output[0]]),[
+    {url:"https://example.com/archive",title:"Archive"},
+    {url:"https://example.com/story",title:"Story"}
+  ]);
+});
 
 test("Retry-After accepts seconds and HTTP dates",()=>{
   const now=Date.parse("2026-10-12T18:00:00Z");

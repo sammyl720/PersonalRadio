@@ -31,7 +31,7 @@ export function RadioApp({signOutPath}:{signOutPath:string}){
  const [recording,setRecording]=useState(false),[micState,setMicState]=useState("idle"),[micSeconds,setMicSeconds]=useState(0);
  const [pendingAnswer,setPendingAnswer]=useState<{jobId:string;episodeId:string;anchorMs:number}|null>(null);
  const audio=useRef<HTMLAudioElement|null>(null),recorder=useRef<MediaRecorder|null>(null),stream=useRef<MediaStream|null>(null),micCancelled=useRef(false),micTimer=useRef<ReturnType<typeof setInterval>|null>(null),sleepTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
- const deviceId=useRef(crypto.randomUUID()),revision=useRef<Record<string,number>>({}),lastSave=useRef(0),currentRef=useRef<Episode|null>(null),questionAnchor=useRef(0),answerReturnMs=useRef(0),answerMode=useRef(false),replayReturn=useRef(false),replayMessages=useRef<SavedMessage[]>([]),replayedAnswers=useRef(new Set<string>()),previewMode=useRef<{src:string;position:number;wasPlaying:boolean}|null>(null);
+ const deviceId=useRef(crypto.randomUUID()),revision=useRef<Record<string,number>>({}),lastSave=useRef(0),currentRef=useRef<Episode|null>(null),questionAnchor=useRef(0),answerReturnMs=useRef(0),answerMode=useRef(false),replayReturn=useRef(false),replayMessages=useRef<SavedMessage[]>([]),replayedAnswers=useRef(new Set<string>()),previewMode=useRef<{src:string;position:number;wasPlaying:boolean}|null>(null),restoringAudio=useRef(false),progressWriting=useRef(false),progressQueued=useRef<{episodeId:string;positionMs:number;speed:number}|null>(null);
  useEffect(()=>{currentRef.current=current},[current]);
  const load=useCallback(async()=>{try{
   const [m,p,e,v]=await Promise.all([api<any>("me"),api<any>("personas"),api<any>("episodes"),api<any>("voices")]);
@@ -45,7 +45,41 @@ export function RadioApp({signOutPath}:{signOutPath:string}){
  const openDetail=useCallback(async(id:string)=>{try{const d=await api<Detail>("episodes/"+id);setDetail(d);setView("detail");if(d.progress)revision.current[id]=d.progress.revision;}catch(e){setError((e as Error).message)}},[]);
  useEffect(()=>{if(!detail||["ready","failed","cancelled"].includes(detail.episode.state))return;let active=true;const poll=async()=>{if(document.visibilityState!=="visible"||!active)return;try{const d=await api<Detail>("episodes/"+detail.episode.id);if(active){setDetail(d);setEpisodes(prev=>prev.map(x=>x.id===d.episode.id?d.episode:x));}}catch{}};const interval=setInterval(poll,2000);return()=>{active=false;clearInterval(interval)}},[detail?.episode.id,detail?.episode.state]);
  useEffect(()=>{if(!pendingAnswer)return;let active=true;const poll=async()=>{if(!active||document.visibilityState!=="visible")return;try{const result=await api<{job:{state:string;error_code:string|null}}>("jobs/"+pendingAnswer.jobId);if(!active)return;if(result.job.state==="failed"||result.job.state==="cancelled"){setPendingAnswer(null);setError("Answer stopped: "+(result.job.error_code||result.job.state));return}if(result.job.state!=="completed")return;const d=await api<Detail>("episodes/"+pendingAnswer.episodeId);if(!active)return;setDetail(old=>old?.episode.id===d.episode.id?d:old);setPendingAnswer(null);const answer=d.messages.filter(m=>m.role==="assistant"&&m.asset_id&&m.anchor_ms===pendingAnswer.anchorMs).at(-1);if(answer&&currentRef.current?.id===pendingAnswer.episodeId&&audio.current){replayMessages.current=d.messages.filter(m=>m.role==="assistant"&&m.asset_id).sort((a,b)=>a.anchor_ms-b.anchor_ms||a.created_at.localeCompare(b.created_at));replayedAnswers.current.add(answer.id);answerReturnMs.current=pendingAnswer.anchorMs;replayReturn.current=false;answerMode.current=true;audio.current.pause();audio.current.src="/api/assets/"+answer.asset_id+"/audio";audio.current.play().catch(()=>setNotice("Answer ready. Tap Play to hear it."))}else setNotice("Answer saved in the episode.")}catch(e){if(active)setError((e as Error).message)}};poll();const interval=setInterval(poll,2000);return()=>{active=false;clearInterval(interval)}},[pendingAnswer?.jobId]);
- const saveProgress=useCallback((episode=currentRef.current,force=false)=>{const a=audio.current;if(!episode||!a||answerMode.current)return;const now=Date.now();if(!force&&now-lastSave.current<5000)return;lastSave.current=now;const expected=revision.current[episode.id]||0;const positionMs=Math.round(a.currentTime*1000);fetch("/api/episodes/"+episode.id+"/progress",{method:"PUT",keepalive:true,headers:{"Content-Type":"application/json"},body:JSON.stringify({positionMs,speed:a.playbackRate,deviceSessionId:deviceId.current,expectedRevision:expected})}).then(async r=>{if(r.ok){const d:any=await r.json();revision.current[episode.id]=d.revision}else if(r.status===409)setNotice("Position changed on another device. Open the episode to choose where to resume.")}).catch(()=>{});},[]);
+ const flushProgress=useCallback(async()=>{
+  if(progressWriting.current)return;
+  progressWriting.current=true;
+  try{while(progressQueued.current){
+   const update=progressQueued.current;progressQueued.current=null;
+   const expected=revision.current[update.episodeId]||0;
+   try{const response=await fetch("/api/episodes/"+update.episodeId+"/progress",{method:"PUT",keepalive:true,headers:{"Content-Type":"application/json"},body:JSON.stringify({...update,deviceSessionId:deviceId.current,expectedRevision:expected})});
+    if(response.ok){const data:any=await response.json();revision.current[update.episodeId]=data.revision;}
+    else if(response.status===409){progressQueued.current=null;setNotice("Position changed on another device. Open the episode to choose where to resume.");}
+   }catch{}
+  }}finally{progressWriting.current=false;}
+ },[]);
+ const saveProgress=useCallback((episode=currentRef.current,force=false)=>{
+  const a=audio.current;if(!episode||!a||answerMode.current||previewMode.current||restoringAudio.current)return;
+  const timestamp=Date.now();if(!force&&timestamp-lastSave.current<5000)return;
+  lastSave.current=timestamp;
+  progressQueued.current={episodeId:episode.id,positionMs:Math.round(a.currentTime*1000),speed:a.playbackRate};
+  void flushProgress();
+ },[flushProgress]);
+ const restoreAudio=(source:string,positionSeconds:number,resume:boolean)=>{
+  const a=audio.current;if(!a)return;
+  restoringAudio.current=true;
+  if(!source){a.removeAttribute("src");a.load();restoringAudio.current=false;return;}
+  const afterMetadata=()=>{
+   a.removeEventListener("loadedmetadata",afterMetadata);
+   const maximum=Number.isFinite(a.duration)?Math.max(0,a.duration-0.25):positionSeconds;
+   a.currentTime=Math.min(Math.max(0,positionSeconds),maximum);
+   setPosition(Math.round(a.currentTime*1000));
+   restoringAudio.current=false;
+   if(resume)a.play().catch(()=>setNotice("Tap Play to resume the episode."));
+  };
+  a.addEventListener("loadedmetadata",afterMetadata,{once:true});
+  a.src=source;a.load();
+  if(a.readyState>=1)afterMetadata();
+ };
  useEffect(()=>{const onVisibility=()=>{if(document.visibilityState==="hidden")saveProgress(undefined,true)};document.addEventListener("visibilitychange",onVisibility);return()=>document.removeEventListener("visibilitychange",onVisibility)},[saveProgress]);
  const resetReplay=(atMs:number)=>{replayedAnswers.current=new Set(replayMessages.current.filter(m=>m.anchor_ms<atMs).map(m=>m.id))};
  const playEpisode=async(ep:Episode,offsetMs?:number)=>{if(!ep.finalAssetId){setNotice("Audio is still being prepared.");return}const a=audio.current;if(!a)return;
@@ -80,7 +114,7 @@ export function RadioApp({signOutPath}:{signOutPath:string}){
  if(loading)return <div className="loading-screen"><div className="brand-mark">◉</div><LoaderCircle className="spin"/>Opening your radio…</div>;
  const settings=me?.settings,estimateChars=form.targetMinutes*145*6,estimatedVoice=settings?.voiceUsdPerThousandCharacters==null?null:estimateChars*settings.voiceUsdPerThousandCharacters/1000*1.2;
  return <div className="app-shell">
-  <audio ref={audio} preload="metadata" onTimeUpdate={e=>{if(answerMode.current||previewMode.current)return;setPosition(e.currentTarget.currentTime*1000);if(!maybeReplayAnswer(e.currentTarget))saveProgress()}} onDurationChange={e=>{if(!answerMode.current&&!previewMode.current)setDuration(e.currentTarget.duration*1000)}} onPlay={()=>setPlaying(true)} onPause={()=>{setPlaying(false);saveProgress(undefined,true)}} onEnded={()=>{setPlaying(false);if(previewMode.current){const restore=previewMode.current;previewMode.current=null;const a=audio.current;if(a){if(restore.src){a.src=restore.src;a.currentTime=restore.position;if(restore.wasPlaying)a.play().catch(()=>{})}else{a.removeAttribute("src");a.load()}}return}if(answerMode.current&&currentRef.current?.finalAssetId){const a=audio.current;const continueReplay=replayReturn.current;answerMode.current=false;replayReturn.current=false;if(a){a.src="/api/assets/"+currentRef.current.finalAssetId+"/audio";a.currentTime=answerReturnMs.current/1000;if(continueReplay||me?.settings.autoResume)a.play().catch(()=>setNotice("Tap Play to resume the episode."))}}}} onError={e=>{if(e.currentTarget.getAttribute("src"))setNotice("Audio connection was interrupted. Tap Play to resume.")}}/>
+  <audio ref={audio} preload="metadata" onTimeUpdate={e=>{if(answerMode.current||previewMode.current||restoringAudio.current)return;setPosition(e.currentTarget.currentTime*1000);if(!maybeReplayAnswer(e.currentTarget))saveProgress()}} onDurationChange={e=>{if(!answerMode.current&&!previewMode.current)setDuration(e.currentTarget.duration*1000)}} onPlay={()=>setPlaying(true)} onPause={()=>{setPlaying(false);saveProgress(undefined,true)}} onEnded={()=>{setPlaying(false);if(previewMode.current){const restore=previewMode.current;previewMode.current=null;restoreAudio(restore.src,restore.position,restore.wasPlaying);return}if(answerMode.current&&currentRef.current?.finalAssetId){const continueReplay=replayReturn.current;answerMode.current=false;replayReturn.current=false;restoreAudio("/api/assets/"+currentRef.current.finalAssetId+"/audio",answerReturnMs.current/1000,continueReplay||!!me?.settings.autoResume)}}} onError={e=>{if(e.currentTarget.getAttribute("src"))setNotice("Audio connection was interrupted. Tap Play to resume.")}}/>
   <header className="topbar"><div className="brand"><span className="brand-symbol"><Radio size={20}/></span><div><strong>PERSONAL RADIO</strong><small>Made for your ears</small></div></div><div className="top-actions"><span className="private-pill"><span/> PRIVATE</span><span className="avatar">{me?.user.displayName?.[0]?.toUpperCase()||"P"}</span></div></header>
   <div className="layout"><aside className="side-nav"><nav><button className={view==="create"?"active":""} onClick={()=>nav("create")}><Plus size={19}/> Create</button><button className={view==="library"||view==="detail"?"active":""} onClick={()=>nav("library")}><ListMusic size={19}/> Library</button><button className={view==="hosts"?"active":""} onClick={()=>nav("hosts")}><Headphones size={19}/> Hosts</button><button className={view==="settings"?"active":""} onClick={()=>nav("settings")}><Settings2 size={19}/> Settings</button></nav><div className="sidebar-foot"><div className="tiny-wave"><AudioLines size={18}/></div><p>Stories worth hearing.<br/>At your own pace.</p></div></aside>
   <main className="content">

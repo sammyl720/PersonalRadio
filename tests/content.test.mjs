@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { estimateEpisodeUsd, estimateVoiceCharacters, parseSingleRange, splitTurns, countWords, repeatedChapterOrdinals } from "../packages/content/src/index.ts";
+import { estimateEpisodeUsd, estimateVoiceCharacters, parseSingleRange, splitTurns, countWords, durationTempo, repeatedChapterOrdinals } from "../packages/content/src/index.ts";
+
+test("small tempo correction brings speech inside the duration tolerance",()=>{
+  assert.equal(durationTempo(600000,600000),1);
+  assert.equal(durationTempo(690000,600000),1);
+  assert.ok(durationTempo(703280,600000)>1&&703280/durationTempo(703280,600000)<690000);
+  assert.ok(durationTempo(480000,600000)<1&&480000/durationTempo(480000,600000)>510000);
+});
 import { createEpisodeSchema, settingsPatchSchema } from "../packages/contracts/src/index.ts";
 
 test("voice estimate includes the retry reserve and preserves an unknown rate", () => {

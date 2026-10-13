@@ -9,7 +9,7 @@ import { Readable } from "node:stream";
 import { OpenAIAdapter, ElevenLabsAdapter, ProviderError } from "../../../packages/providers/src/index.ts";
 import type { ResearchProvider, TextProvider, SpeechProvider, TranscriptionProvider } from "../../../packages/providers/src/index.ts";
 import { FixtureOpenAI, FixtureSpeech } from "./fixtures.ts";
-import { countWords, estimateEpisodeUsd, repeatedChapterOrdinals, splitTurns } from "../../../packages/content/src/index.ts";
+import { countWords, durationTempo, estimateEpisodeUsd, repeatedChapterOrdinals, splitTurns } from "../../../packages/content/src/index.ts";
 
 const env=process.env;
 for(const key of ["WORKER_HMAC_SECRET","SITE_BASE_URL"] as const)if(!env[key])throw new Error("Missing "+key);
@@ -248,9 +248,13 @@ async function episode(l:Lease){
   await checkpoint(l,"assembly",{chunkCount:chunks.length});
   const list=join(temp,"concat.txt");await writeFile(list,audioPaths.map(p=>"file '"+p.replaceAll("'","'\\''")+"'").join("\n"));
   const final=join(temp,"episode.mp3");
-  await execute("ffmpeg",["-hide_banner","-loglevel","error","-f","concat","-safe","0","-i",list,"-af","loudnorm=I=-16:TP=-1.5:LRA=11","-ac","1","-b:a","96k","-y",final]);
-  const measured=await duration(final),assetId=await uploadFile(l,final,measured);
-  await api("jobs/"+l.id+"/complete","POST",{leaseToken:l.leaseToken,fence:l.fence,assetId,chapterTimes:input.chapters.map(c=>({id:c.id,...(times.get(c.id)||{startMs:0,durationMs:0})}))});
+  const targetMs=ep.requested_minutes*60_000,tempo=fixtureMode?1:durationTempo(position,targetMs);
+  const filters=[...(tempo===1?[]:["atempo="+tempo.toFixed(5)]),"loudnorm=I=-16:TP=-1.5:LRA=11"];
+  await execute("ffmpeg",["-hide_banner","-loglevel","error","-f","concat","-safe","0","-i",list,"-af",filters.join(","),"-ac","1","-b:a","96k","-y",final]);
+  const measured=await duration(final);
+  if(!fixtureMode&&(measured<targetMs*0.85||measured>targetMs*1.15))throw new Error("duration_out_of_range");
+  const assetId=await uploadFile(l,final,measured),timeScale=measured/position;
+  await api("jobs/"+l.id+"/complete","POST",{leaseToken:l.leaseToken,fence:l.fence,assetId,chapterTimes:input.chapters.map(c=>{const recorded=times.get(c.id)||{startMs:0,durationMs:0};return {id:c.id,startMs:Math.round(recorded.startMs*timeScale),durationMs:Math.round(recorded.durationMs*timeScale)}})});
  }finally{await rm(temp,{recursive:true,force:true});}
 }
 async function answer(l:Lease){

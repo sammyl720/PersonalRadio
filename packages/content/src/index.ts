@@ -8,6 +8,12 @@ export function estimateEpisodeUsd(minutes:number, rate:number|null, reserve=0.2
   return Math.ceil(estimateVoiceCharacters(minutes)*rate/1000*(1+reserve)*100)/100;
 }
 export function countWords(text:string) { return (text.trim().match(/\b[\p{L}\p{N}][\p{L}\p{N}'’-]*\b/gu) ?? []).length; }
+export function durationTempo(actualMs:number,targetMs:number):number{
+  if(!Number.isFinite(actualMs)||!Number.isFinite(targetMs)||actualMs<=0||targetMs<=0)throw new Error("invalid_duration");
+  if(actualMs>targetMs*1.15)return Math.min(1.15,actualMs/(targetMs*1.12));
+  if(actualMs<targetMs*0.85)return Math.max(0.87,actualMs/(targetMs*0.88));
+  return 1;
+}
 export function repeatedChapterOrdinals(chapters:{ordinal:number;spokenText:string}[],passageWords=40):number[]{
   const seen=new Map<string,{ordinal:number;offset:number}>(),repeated=new Set<number>();
   for(const chapter of chapters){
