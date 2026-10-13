@@ -14,3 +14,5 @@
 
 .inline-source{display:inline-block;margin-left:6px;color:#a9ceff;text-decoration:underline;text-underline-offset:3px;font-size:.85em}
 .progress-conflict{flex-wrap:wrap}.progress-conflict span{min-width:220px}.progress-conflict button{min-height:44px;padding:0 14px;border:1px solid #75b8ae;border-radius:8px;font-weight:700}.progress-conflict button:hover{background:#245650}
+
+.sources a{grid-template-columns:minmax(0,1fr) auto;min-width:0}.sources a strong{overflow-wrap:anywhere}

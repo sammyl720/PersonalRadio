@@ -4,16 +4,25 @@ import { OpenAIAdapter, ProviderError, researchSources, retryAfterMs } from "../
 
 test("research keeps evidence citations instead of unrelated search results",()=>{
   const output=[
-    {action:{sources:[{url:"https://example.com/archive",title:"Archive"},{url:"https://example.com/story",title:"Story"}]}},
-    {content:[{annotations:[{url:"https://example.com/story",title:"Direct report"},{url:"https://official.example/statement",title:"Statement"}]}]}
+    {action:{sources:[{url:"https://example.com/archive/2026",title:"Archive"},{url:"https://example.com/news/story",title:"Story"}]}},
+    {content:[{annotations:[{url:"https://example.com/news/story",title:"Direct report"},{url:"https://official.example/press/statement",title:"Statement"}]}]}
   ];
   assert.deepEqual(researchSources(output),[
-    {url:"https://example.com/story",title:"Direct report"},
-    {url:"https://official.example/statement",title:"Statement"}
+    {url:"https://example.com/news/story",title:"Direct report"},
+    {url:"https://official.example/press/statement",title:"Statement"}
   ]);
   assert.deepEqual(researchSources([output[0]]),[
-    {url:"https://example.com/archive",title:"Archive"},
-    {url:"https://example.com/story",title:"Story"}
+    {url:"https://example.com/news/story",title:"Story"}
+  ]);
+  assert.deepEqual(researchSources([{action:{sources:[
+    {url:"https://wspartners.bbc.com/schedules/bbc_world_service_europe/week/2026-10-10"},
+    {url:"https://www.theguardian.com/world/2026/oct/13/all"},
+    {url:"https://apnews.com/article/23aa01c0c6922fbf0b564a0ff9b2c8e5"},
+    {url:"https://mediacenter.imf.org/press-briefings/financial-stability-report"},
+    {url:"https://www.reddit.com/r/news/comments/example"}
+  ]}}]),[
+    {url:"https://apnews.com/article/23aa01c0c6922fbf0b564a0ff9b2c8e5",title:null},
+    {url:"https://mediacenter.imf.org/press-briefings/financial-stability-report",title:null}
   ]);
 });
 

@@ -13,19 +13,30 @@ function outputText(response:any){return response.output_text||response.output?.
 export function researchSources(output:any[]):{url:string;title:string|null}[]{
  const cited=new Map<string,{url:string;title:string|null}>(),searched=new Map<string,{url:string;title:string|null}>();
  for(const item of output||[]){
-  for(const source of item.action?.sources||[])if(source.url?.startsWith("https://"))searched.set(source.url,{url:source.url,title:source.title||null});
-  for(const content of item.content||[])for(const annotation of content.annotations||[])if(annotation.url?.startsWith("https://")){
+  for(const source of item.action?.sources||[])if(usableResearchUrl(source.url))searched.set(source.url,{url:source.url,title:source.title||null});
+  for(const content of item.content||[])for(const annotation of content.annotations||[])if(usableResearchUrl(annotation.url)){
    const existing=searched.get(annotation.url);
    cited.set(annotation.url,{url:annotation.url,title:annotation.title||existing?.title||null});
   }
  }
- return [...(cited.size?cited:searched).values()];
+ return [...(cited.size?cited:searched).values()].slice(0,20);
+}
+function usableResearchUrl(value:unknown):value is string{
+ if(typeof value!=="string")return false;
+ let url:URL;try{url=new URL(value)}catch{return false}
+ if(url.protocol!=="https:")return false;
+ if(/(^|\.)(reddit\.com|wikipedia\.org|quora\.com|wspartners\.bbc\.com|help\.bbc\.com)$/i.test(url.hostname))return false;
+ const parts=url.pathname.toLowerCase().split("/").filter(Boolean);
+ if(parts.length<2)return false;
+ if(parts.some(part=>/^(archives?|sitemaps?|schedules?|categories|topics|tags|magazine)$/i.test(part)))return false;
+ if(/^(all|index|home|20\d\d|\d\d)$/.test(parts.at(-1)!))return false;
+ return true;
 }
 export class OpenAIAdapter implements ResearchProvider,TextProvider{
  constructor(private key:string,private researchModel="gpt-6-luna",private writingModel="gpt-6-luna"){}
  private async call(body:object,options:CallOptions){const t=signalFor(options);try{const r=await checked(await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Authorization":"Bearer "+this.key,"Content-Type":"application/json"},body:JSON.stringify(body),signal:t.signal}),"openai");return {value:await r.json() as any,requestId:r.headers.get("x-request-id")};}catch(error){providerFailure("openai",error,t.signal)}finally{t.done();}}
  async research(query:string,options:CallOptions={}):Promise<ProviderResult<{text:string;sources:{url:string;title:string|null}[]}>>{
-  const {value,requestId}=await this.call({model:this.researchModel,reasoning:{effort:"low"},tools:[{type:"web_search"}],tool_choice:"required",include:["web_search_call.action.sources"],input:query+"\nCite each substantive current claim with the direct article or official source URL. Avoid homepages, archive indexes, search pages, and unrelated results; mark unresolved facts clearly."},options);
+  const {value,requestId}=await this.call({model:this.researchModel,reasoning:{effort:"low"},tools:[{type:"web_search",filters:{blocked_domains:["reddit.com","wikipedia.org","quora.com"]}}],tool_choice:"required",include:["web_search_call.action.sources"],input:query+"\nCite each substantive current claim with the direct article or official source URL. Use inline web citations for supporting claims so the response includes URL citation annotations. Avoid homepages, archive indexes, search pages, and unrelated results; mark unresolved facts clearly."},options);
   return {data:{text:outputText(value),sources:researchSources(value.output||[])},requestId:requestId||value.id||null,usage:{inputTokens:value.usage?.input_tokens||0,outputTokens:value.usage?.output_tokens||0},model:this.researchModel};
  }
  async generateStructured<T>(prompt:string,schema:object,name:string,options:CallOptions={}):Promise<ProviderResult<T>>{
