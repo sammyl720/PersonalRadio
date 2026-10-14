@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { spokenMarkupIssue } from "../packages/content/src/index.ts";
+import { countWords, spokenMarkupIssue, spokenPacingIssues } from "../packages/content/src/index.ts";
 
 const base=process.env.RADIO_TEST_BASE_URL;
 const fixtureTest=base?test:test.skip;
@@ -41,8 +41,9 @@ fixtureTest("local fixture worker completes a private episode, playback, and ans
     assert.ok(detail.chapters.every(c=>c.turns.every(turn=>["neutral","warm","curious","playful","thoughtful"].includes(turn.delivery))),"delivery metadata survives the Site checkpoint");
     assert.ok(detail.chapters.every(c=>!c.spokenText.includes("[warm,")&&!c.spokenText.includes("[curious]")),"voice cues stay out of the transcript");
     assert.equal(detail.jobs[0].checkpoint.reviewResolved,true);
-    assert.deepEqual([...detail.jobs[0].checkpoint.rewrittenOrdinals].sort(),[0,1]);
+    assert.deepEqual([...detail.jobs[0].checkpoint.rewrittenOrdinals].sort(),[0,1,2]);
     assert.ok(detail.chapters.every(c=>c.turns.every(turn=>!spokenMarkupIssue(turn.text))),"review removes markup before voice synthesis");
+    assert.ok(detail.chapters.every(c=>!spokenPacingIssues(c.turns,2).length&&c.turns.every(turn=>countWords(turn.text)<=260)),"chapters have bounded spoken beats with both hosts");
     assert.ok(detail.usage.some(event=>event.operation==="script_review_initial"));
     assert.ok(detail.usage.some(event=>event.operation==="chapter_rewrite"));
     assert.ok(detail.usage.some(event=>event.operation==="script_review_final"));

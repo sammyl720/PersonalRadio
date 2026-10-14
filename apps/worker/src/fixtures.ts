@@ -15,8 +15,10 @@ export class FixtureOpenAI implements ResearchProvider,TextProvider{
    const ordinal=Number(prompt.match(/Chapter ordinal: (\d+)/)?.[1]??Number(prompt.match(/Write chapter (\d+)/)?.[1]||1)-1);
    const blocks=Array.from({length:Math.ceil(target/22)},(_,segment)=>"In chapter "+(ordinal+1)+", example "+(segment+1)+", "+Array.from({length:18},(_,offset)=>words[(segment*18+offset)%words.length]).join(" ")+".");
    const personaCount=JSON.parse(prompt.match(/Personas: (\[[^\n]*\])/)?.[1]||"[]").length;
-   const turns=personaCount>1?[{speaker:0,text:blocks.slice(0,Math.ceil(blocks.length/2)).join(" "),delivery:"curious",sourceIds:[]},{speaker:1,text:blocks.slice(Math.ceil(blocks.length/2)).join(" "),delivery:"warm",sourceIds:[]}]:[{speaker:0,text:blocks.join(" "),delivery:"warm",sourceIds:[]}];
+   const turns:{speaker:number;text:string;delivery:"curious"|"warm";sourceIds:string[]}[]=[];
+   for(let start=0;start<blocks.length;start+=9){const beat=turns.length;turns.push({speaker:personaCount>1?beat%2:0,text:blocks.slice(start,start+9).join(" "),delivery:beat%2?"warm":"curious",sourceIds:[]})}
    if(name==="radio_chapter"&&ordinal===0&&prompt.includes("fixture review rewrite"))turns[0].text="[A source](https://example.com/report) explains the context. "+turns[0].text;
+   if(name==="radio_chapter"&&ordinal===2&&prompt.includes("fixture review rewrite"))return result({title:"Fixture chapter",turns:[{speaker:0,text:blocks.join(" "),delivery:"curious",sourceIds:[]}]} as T,"fixture-writing");
    return result({title:"Fixture chapter",turns} as T,"fixture-writing")
   }
   return result({text:"This is a local fixture answer about the current chapter. It confirms that the saved question, response, and audio pipeline can complete without a paid provider call.",delivery:"warm"} as T,"fixture-writing");

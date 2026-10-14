@@ -37,6 +37,13 @@ export function estimateEpisodeUsd(minutes:number, rate:number|null, reserve=0.2
   return Math.ceil(estimateVoiceCharacters(minutes)*rate/1000*(1+reserve)*100)/100;
 }
 export function countWords(text:string) { return (text.trim().match(/\b[\p{L}\p{N}][\p{L}\p{N}'’-]*\b/gu) ?? []).length; }
+export function spokenPacingIssues(turns:{speaker:number;text:string;delivery?:Delivery}[],speakerCount:number):string[]{
+  const total=turns.reduce((sum,turn)=>sum+countWords(turn.text),0),issues:string[]=[];
+  if(turns.some(turn=>countWords(turn.text)>260))issues.push("Break long host monologues into natural spoken beats of at most 260 words, preserving the explanation and source IDs.");
+  if(total>=350&&turns.every(turn=>!turn.delivery||turn.delivery==="neutral"))issues.push("Choose purposeful, subject-appropriate delivery for some beats rather than leaving the whole chapter neutral.");
+  if(speakerCount>1&&total>=350&&new Set(turns.map(turn=>turn.speaker)).size<2)issues.push("Let both hosts contribute to this substantive chapter without repeating each other.");
+  return issues;
+}
 export function durationTempo(actualMs:number,targetMs:number):number{
   if(!Number.isFinite(actualMs)||!Number.isFinite(targetMs)||actualMs<=0||targetMs<=0)throw new Error("invalid_duration");
   if(actualMs>targetMs*1.15)return Math.min(1.15,actualMs/(targetMs*1.12));

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { estimateEpisodeUsd, estimateVoiceCharacters, parseSingleRange, splitTurns, countWords, durationTempo, repeatedChapterOrdinals, readableTranscriptText, spokenMarkupIssue, voiceText } from "../packages/content/src/index.ts";
+import { estimateEpisodeUsd, estimateVoiceCharacters, parseSingleRange, splitTurns, countWords, durationTempo, repeatedChapterOrdinals, readableTranscriptText, spokenMarkupIssue, spokenPacingIssues, voiceText } from "../packages/content/src/index.ts";
 
 test("small tempo correction brings speech inside the duration tolerance",()=>{
   assert.equal(durationTempo(600000,600000),1);
@@ -49,6 +49,14 @@ test("spoken scripts reject citation markup and old transcripts show readable la
   assert.match(spokenMarkupIssue("See www.example.com for details."),/web addresses/);
   assert.match(spokenMarkupIssue("[pause] Let's continue."),/stage directions/);
   assert.equal(spokenMarkupIssue("As SecurityWeek reported, the company confirmed the incident."),null);
+});
+
+test("long monologues and missing second hosts get pacing review before speech",()=>{
+  const longLine=Array.from({length:270},(_,i)=>`word${i}`).join(" ");
+  assert.match(spokenPacingIssues([{speaker:0,text:longLine,delivery:"neutral"}],2).join(" "),/long host monologues/);
+  const shorter=Array.from({length:180},(_,i)=>`word${i}`).join(" ");
+  assert.deepEqual(spokenPacingIssues([{speaker:0,text:shorter,delivery:"curious"},{speaker:1,text:shorter,delivery:"warm"}],2),[]);
+  assert.match(spokenPacingIssues([{speaker:0,text:shorter,delivery:"neutral"},{speaker:0,text:shorter,delivery:"neutral"}],2).join(" "),/both hosts/);
 });
 
 test("long repeated spoken passages are attributed to the later chapter", () => {

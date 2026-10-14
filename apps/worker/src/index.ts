@@ -9,7 +9,7 @@ import { Readable } from "node:stream";
 import { OpenAIAdapter, ElevenLabsAdapter, ProviderError, usableResearchUrl } from "../../../packages/providers/src/index.ts";
 import type { ResearchProvider, TextProvider, SpeechProvider, TranscriptionProvider } from "../../../packages/providers/src/index.ts";
 import { FixtureOpenAI, FixtureSpeech } from "./fixtures.ts";
-import { countWords, deliveries, durationTempo, estimateEpisodeUsd, repeatedChapterOrdinals, spokenMarkupIssue, splitTurns, voiceText } from "../../../packages/content/src/index.ts";
+import { countWords, deliveries, durationTempo, estimateEpisodeUsd, repeatedChapterOrdinals, spokenMarkupIssue, spokenPacingIssues, splitTurns, voiceText } from "../../../packages/content/src/index.ts";
 
 const env=process.env;
 for(const key of ["WORKER_HMAC_SECRET","SITE_BASE_URL"] as const)if(!env[key])throw new Error("Missing "+key);
@@ -92,7 +92,7 @@ const outlineSchema=schema({title:{type:"string"},chapters:{type:"array",items:s
 function chapterSchema(sourceIds:string[],speakerCount:number){return schema({title:{type:"string"},turns:{type:"array",items:schema({speaker:{type:"integer",enum:Array.from({length:speakerCount},(_,i)=>i)},text:{type:"string"},delivery:{type:"string",enum:[...deliveries]},sourceIds:{type:"array",items:sourceIds.length?{type:"string",enum:sourceIds}:{type:"string"}}})}});}
 const reviewSchema=schema({approved:{type:"boolean"},issues:{type:"array",items:schema({chapterOrdinal:{type:"integer"},reason:{type:"string"}})}});
 const answerSchema=schema({text:{type:"string"},delivery:{type:"string",enum:[...deliveries]}});
-const styleGuide="Write for someone listening, not scanning. Give each chapter a distinct purpose, an inviting opening, concrete examples or revealing details, and a transition that earns the next topic. Vary sentence length and rhythm; use occasional questions, contrasts, and surprise without becoming breathless. Let each host's own tone, pace, and instructions shape the language. Add gentle, specific wit when the material naturally allows it, especially for technology quirks and everyday examples. Never force a joke or make light of death, injury, violence, disaster, exploitation, or someone's hardship. Keep news factual and humane. Avoid stock broadcaster phrases, repeated caveats, filler, sensationalism, fabricated scenes or quotes, and a lecture-like list of facts. Humor and personality never weaken sourcing.";
+const styleGuide="Write for someone listening, not scanning. Give each chapter a distinct purpose, an inviting opening, concrete examples or revealing details, and a transition that earns the next topic. Vary sentence length and rhythm; use occasional questions, contrasts, and surprise without becoming breathless. Structure each chapter as natural spoken beats of roughly 100-220 words, never more than 260 words in one turn. A single host can have consecutive turns. Change delivery at meaningful shifts in the story, without theatrical excess; two hosts should both contribute to substantive chapters without echoing each other. Let each host's own tone, pace, and instructions shape the language. Add gentle, specific wit when the material naturally allows it, especially for technology quirks and everyday examples. Never force a joke or make light of death, injury, violence, disaster, exploitation, or someone's hardship. Keep news factual and humane. Avoid stock broadcaster phrases, repeated caveats, filler, sensationalism, fabricated scenes or quotes, and a lecture-like list of facts. Humor and personality never weaken sourcing.";
 function hostStyles(ep:any){return JSON.stringify(ep.personaSnapshot.map((x:any)=>({name:x.name,description:x.description,instructions:x.instructions,tone:x.tone,pace:x.pace})));}
 type ReviewIssue={chapterOrdinal:number;reason:string};
 function checkedReview(value:any,chapters:any[]):ReviewIssue[]{
@@ -133,6 +133,7 @@ function deterministicScriptIssues(input:Input,expectedChapters:number,minimumCh
   const issue=spokenMarkupIssue(turn.text);
   if(issue)add(chapter.ordinal,issue);
  }
+ for(const chapter of input.chapters)for(const issue of spokenPacingIssues(chapter.turns,input.episode.personaSnapshot.length))add(chapter.ordinal,issue);
  return [...issues].map(([chapterOrdinal,reasons])=>({chapterOrdinal,reason:[...reasons].join(" ")}));
 }
 function mergeReviewIssues(reviewed:ReviewIssue[],deterministic:ReviewIssue[]):ReviewIssue[]{
@@ -201,25 +202,26 @@ async function episode(l:Lease){
    cp.reviewIssues=issues;cp.rewrittenOrdinals=[];
    await checkpoint(l,"check",{reviewIssues:issues,rewrittenOrdinals:[]});
   }
-  if(cp.reviewIssues.length>5)throw new Error("review_unresolved");
+  if(cp.reviewIssues.length>Math.max(5,cp.outline.chapters.length))throw new Error("review_unresolved");
   for(const issue of cp.reviewIssues as ReviewIssue[]){
    if(cp.rewrittenOrdinals.includes(issue.chapterOrdinal))continue;
    const previous=input.chapters.find(c=>c.ordinal===issue.chapterOrdinal);
    if(!previous)throw new Error("invalid_review");
    const validSources=input.sources.filter(x=>usableResearchUrl(x.url));
-   const originalWords=countWords(previous.spoken_text),minimumWords=Math.ceil(perChapter*0.55);
+   const originalWords=countWords(previous.spoken_text),minimumWords=Math.max(Math.ceil(perChapter*0.55),Math.min(Math.ceil(originalWords*0.85),Math.ceil(perChapter*1.1)));
    let c:any;
    for(let attempt=0;attempt<3;attempt++){
     const prompt="Rewrite this one chapter to fix the reviewer issue while preserving its substantial spoken length, focus, and natural listening style. Change other content only as needed. "+styleGuide+" Never invent evidence, quotes, or current facts. Do not read URLs, citation IDs, or audio direction tags aloud. For each turn set delivery to neutral, warm, curious, playful, or thoughtful; playful must fit genuinely light material and must not trivialize harm. Delivery is metadata, never part of text. Return the chapter title and turns.\nOverall request: "+ep.prompt+"\nReviewer issue: "+issue.reason+"\nChapter ordinal: "+issue.chapterOrdinal+"\nChapter: "+JSON.stringify({title:previous.title,turns:previous.turns})+"\nEvidence digest: "+(cp.research||"No fresh research was performed.")+"\nAllowed source IDs and URLs: "+JSON.stringify(validSources.map(x=>({id:x.id,url:x.url})))+"\nPersonas: "+hostStyles(ep)+"\nThe original has "+originalWords+" spoken words. Keep at least "+minimumWords+" spoken words; do not summarize or condense it. Aim for "+perChapter+" spoken words. Single host uses only speaker 0, two host mode can use speaker 0 and 1."+(attempt?"\nThe previous rewrite was too short. Expand the concrete explanation while staying within the evidence.":"");
     const result=await reviewer.generateStructured<any>(prompt,chapterSchema(validSources.map(x=>x.id),ep.personaSnapshot.length),"radio_chapter_rewrite",{timeoutMs:180000});
     await usage(l,"openai",result.model,"chapter_rewrite",result.usage,result.requestId);
     c=result.data;
-    if(Array.isArray(c?.turns)&&countWords(c.turns.map((x:any)=>x.text).join(" "))>=minimumWords)break;
+    if(Array.isArray(c?.turns)&&c.turns.every((x:any)=>typeof x.text==="string"&&!spokenMarkupIssue(x.text))&&countWords(c.turns.map((x:any)=>x.text).join(" "))>=minimumWords&&!spokenPacingIssues(c.turns,ep.personaSnapshot.length).length)break;
    }
    const allowed=new Set(validSources.map(x=>x.id));
    if(!Array.isArray(c?.turns)||!c.turns.length||typeof c.title!=="string"||!c.title.trim()||c.title.length>200)throw new Error("invalid_rewrite");
    for(const turn of c.turns){if(!Number.isInteger(turn.speaker)||turn.speaker<0||turn.speaker>=ep.personaSnapshot.length||typeof turn.text!=="string"||!turn.text.trim()||turn.text.length>12000||!deliveries.includes(turn.delivery)||!Array.isArray(turn.sourceIds)||turn.sourceIds.some((id:string)=>!allowed.has(id)))throw new Error("invalid_rewrite");}
    if(countWords(c.turns.map((x:any)=>x.text).join(" "))<minimumWords)throw new Error("rewrite_too_short");
+   if(c.turns.some((x:any)=>spokenMarkupIssue(x.text))||spokenPacingIssues(c.turns,ep.personaSnapshot.length).length)throw new Error("review_unresolved");
    const chapter={id:previous.id,ordinal:previous.ordinal,title:c.title,turns:c.turns,sourceIds:[...new Set<string>(c.turns.flatMap((x:any)=>x.sourceIds))]};
    cp.rewrittenOrdinals.push(issue.chapterOrdinal);
    await checkpoint(l,"check",{rewrittenOrdinals:cp.rewrittenOrdinals},{chapter});
