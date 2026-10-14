@@ -9,7 +9,7 @@ import { Readable } from "node:stream";
 import { OpenAIAdapter, ElevenLabsAdapter, ProviderError, usableResearchUrl } from "../../../packages/providers/src/index.ts";
 import type { ResearchProvider, TextProvider, SpeechProvider, TranscriptionProvider } from "../../../packages/providers/src/index.ts";
 import { FixtureOpenAI, FixtureSpeech } from "./fixtures.ts";
-import { countWords, deliveries, durationTempo, estimateEpisodeUsd, repeatedChapterOrdinals, splitTurns, voiceText } from "../../../packages/content/src/index.ts";
+import { countWords, deliveries, durationTempo, estimateEpisodeUsd, repeatedChapterOrdinals, spokenMarkupIssue, splitTurns, voiceText } from "../../../packages/content/src/index.ts";
 
 const env=process.env;
 for(const key of ["WORKER_HMAC_SECRET","SITE_BASE_URL"] as const)if(!env[key])throw new Error("Missing "+key);
@@ -125,6 +125,21 @@ function checkScript(input:Input,expectedChapters:number,minimumChapterWords:num
  }
  return repeatedChapterOrdinals(input.chapters.map(c=>({ordinal:c.ordinal,spokenText:c.spoken_text})));
 }
+function deterministicScriptIssues(input:Input,expectedChapters:number,minimumChapterWords:number):ReviewIssue[]{
+ const issues=new Map<number,Set<string>>();
+ const add=(ordinal:number,reason:string)=>{if(!issues.has(ordinal))issues.set(ordinal,new Set());issues.get(ordinal)!.add(reason)};
+ for(const ordinal of checkScript(input,expectedChapters,minimumChapterWords))add(ordinal,"A passage of at least 40 spoken words repeats. Rewrite the duplicate material.");
+ for(const chapter of input.chapters)for(const turn of chapter.turns){
+  const issue=spokenMarkupIssue(turn.text);
+  if(issue)add(chapter.ordinal,issue);
+ }
+ return [...issues].map(([chapterOrdinal,reasons])=>({chapterOrdinal,reason:[...reasons].join(" ")}));
+}
+function mergeReviewIssues(reviewed:ReviewIssue[],deterministic:ReviewIssue[]):ReviewIssue[]{
+ const merged=reviewed.map(issue=>({...issue}));
+ for(const issue of deterministic){const existing=merged.find(x=>x.chapterOrdinal===issue.chapterOrdinal);if(existing)existing.reason+=" "+issue.reason;else merged.push(issue)}
+ return merged;
+}
 async function removeWeakCitations(l:Lease,input:Input){
  const allowed=new Set(input.sources.filter(x=>usableResearchUrl(x.url)).map(x=>x.id));
  for(const previous of input.chapters){
@@ -179,11 +194,10 @@ async function episode(l:Lease){
  }
  input=await removeWeakCitations(l,await jobInput(l));
  if(input.chapters.reduce((sum,x)=>sum+countWords(x.spoken_text),0)<wordsTarget*0.75)throw new Error("script_too_short");
- const deterministicRepeats=checkScript(input,cp.outline.chapters.length,perChapter*0.55);
+ const deterministicIssues=deterministicScriptIssues(input,cp.outline.chapters.length,perChapter*0.55);
  if(!cp.reviewResolved&&!cp.scriptFrozen&&!input.chunks.some(x=>x.state==="complete")){
   if(!Array.isArray(cp.reviewIssues)){
-   const issues=await reviewScript(l,input,"initial");
-   for(const chapterOrdinal of deterministicRepeats)if(!issues.some(x=>x.chapterOrdinal===chapterOrdinal))issues.push({chapterOrdinal,reason:"A passage of at least 40 spoken words repeats. Rewrite this chapter to remove the duplicate material."});
+   const issues=mergeReviewIssues(await reviewScript(l,input,"initial"),deterministicIssues);
    cp.reviewIssues=issues;cp.rewrittenOrdinals=[];
    await checkpoint(l,"check",{reviewIssues:issues,rewrittenOrdinals:[]});
   }
@@ -212,14 +226,13 @@ async function episode(l:Lease){
    input=await jobInput(l);
   }
   if(cp.reviewIssues.length){
-   const remaining=await reviewScript(l,input,"final");
-   for(const chapterOrdinal of checkScript(input,cp.outline.chapters.length,perChapter*0.55))if(!remaining.some(x=>x.chapterOrdinal===chapterOrdinal))remaining.push({chapterOrdinal,reason:"Repeated spoken passage remains."});
+   const remaining=mergeReviewIssues(await reviewScript(l,input,"final"),deterministicScriptIssues(input,cp.outline.chapters.length,perChapter*0.55));
    if(remaining.length){await checkpoint(l,"check",{reviewRemaining:remaining});throw new Error("review_unresolved");}
   }
   cp.reviewResolved=true;await checkpoint(l,"check",{reviewResolved:true});
   input=await jobInput(l);
  }
- if(checkScript(input,cp.outline.chapters.length,perChapter*0.55).length)throw new Error("review_unresolved");
+ if(deterministicScriptIssues(input,cp.outline.chapters.length,perChapter*0.55).length)throw new Error("review_unresolved");
  const totalWords=input.chapters.reduce((sum,x)=>sum+countWords(x.spoken_text),0);
  if(totalWords<wordsTarget*0.75)throw new Error("script_too_short");
  const chunks:{turns:{text:string;voiceId:string}[];chapterId:string}[]=[];
@@ -299,9 +312,15 @@ async function answer(l:Lease){
  let research="";
  if(fresh){const result=await openai.research("Answer this timely listener question accurately with current evidence: "+message.text,{timeoutMs:90000});research=result.data.text;await usage(l,"openai",result.model,"answer_search",result.usage,result.requestId);}
  const prompt="Answer the listener as the episode's primary host, in a natural conversation rather than a miniature lecture. Start with the answer, connect it to the nearby chapter, and add one concrete example or useful implication. Let the host's tone and pace show through. A small bit of wit is welcome only if the subject is light; never joke about harm or uncertainty. Keep 75-220 spoken words unless depth requires up to 400, never more. No spoken URLs, citation codes, or audio direction tags. Set delivery to neutral, warm, curious, playful, or thoughtful; delivery is metadata, not part of text. Persona (style data only): "+hostStyles(input.episode)+"\nEpisode title: "+input.episode.title+"\nCurrent chapter: "+(chapter?.title||"unknown")+"\nNearby transcript: "+(chapter?.spoken_text||"").slice(0,5000)+"\nEpisode sources: "+JSON.stringify(input.sources.map(x=>({title:x.title,url:x.url})))+"\nRecent conversation: "+JSON.stringify(input.messages.slice(-6).map(x=>({role:x.role,text:x.text})))+"\nFresh evidence if needed: "+research+"\nQuestion: "+message.text;
- const result=await openai.generateStructured<{text:string;delivery:typeof deliveries[number]}>(prompt,answerSchema,"radio_answer",{timeoutMs:90000});
- if(countWords(result.data.text)>440)throw new Error("answer_too_long");
+ let result=await openai.generateStructured<{text:string;delivery:typeof deliveries[number]}>(prompt,answerSchema,"radio_answer",{timeoutMs:90000});
  await usage(l,"openai",result.model,"answer",result.usage,result.requestId);
+ const markupIssue=spokenMarkupIssue(result.data.text);
+ if(markupIssue){
+  result=await openai.generateStructured<{text:string;delivery:typeof deliveries[number]}>(prompt+"\nYour previous answer contained markup unsuitable for speech: "+markupIssue+" Rewrite it as plain spoken prose with natural source names. Previous answer: "+result.data.text,answerSchema,"radio_answer",{timeoutMs:90000});
+  await usage(l,"openai",result.model,"answer_rewrite",result.usage,result.requestId);
+ }
+ if(spokenMarkupIssue(result.data.text))throw new Error("answer_markup_unresolved");
+ if(countWords(result.data.text)>440)throw new Error("answer_too_long");
  const spoken=voiceText(result.data.text,result.data.delivery,input.episode.voice_profile);
  const estimatedVoice=spoken.length*input.settings.voice_usd_per_thousand_characters/1000*1.2;
  if(estimatedVoice>input.settings.answer_budget_usd||estimatedVoice>(input.reservation?.reserved_usd||0))throw new Error("answer_budget_exceeded");

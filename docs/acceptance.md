@@ -16,6 +16,7 @@ Run local checks with `npm run worker:check`, `npm run site:build`, and `RADIO_T
 - New scripts use host tone, pace, and instructions; chapters are prompted for varied rhythm, concrete details, natural transitions, and light wit where appropriate. The reviewer checks for flat repetition and humor that trivializes harm.
 - Eleven v4 receives bounded per-turn delivery cues while the transcript keeps only spoken words. Economy speech receives plain text. The final voice quote includes cue characters actually sent to synthesis.
 - Local fixture generation, persistence, two-host playback, and spoken-answer flow passed on 2026-10-14 (11 tests total). A new paid live episode and listening evaluation of the revised writing and Eleven v4 delivery have not yet been run.
+- A follow-up local run on 2026-10-14 passed all 12 tests. Its fixture script deliberately included a Markdown source link; the deterministic pre-speech review rewrote that chapter and a separate editorially flagged chapter before synthesis. New answers also get one plain-speech rewrite if they contain markup. The Site displays labels instead of raw Markdown URLs in older saved transcripts. No paid live listening evaluation has been run for these changes.
 
 ## Paid live evaluation to schedule
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { estimateEpisodeUsd, estimateVoiceCharacters, parseSingleRange, splitTurns, countWords, durationTempo, repeatedChapterOrdinals, voiceText } from "../packages/content/src/index.ts";
+import { estimateEpisodeUsd, estimateVoiceCharacters, parseSingleRange, splitTurns, countWords, durationTempo, repeatedChapterOrdinals, readableTranscriptText, spokenMarkupIssue, voiceText } from "../packages/content/src/index.ts";
 
 test("small tempo correction brings speech inside the duration tolerance",()=>{
   assert.equal(durationTempo(600000,600000),1);
@@ -40,6 +40,15 @@ test("voice direction stays out of the transcript and avoids playful delivery fo
   assert.equal(voiceText(line,"playful","latest"),"[lightly amused] "+line);
   assert.equal(voiceText(line,"playful","economy"),line);
   assert.equal(voiceText("The attack injured civilians.","playful","latest"),"[thoughtful, measured] The attack injured civilians.");
+});
+
+test("spoken scripts reject citation markup and old transcripts show readable labels",()=>{
+  const marked="SecurityWeek [reported](https://example.com/report) the incident.";
+  assert.match(spokenMarkupIssue(marked),/Markdown links/);
+  assert.equal(readableTranscriptText(marked),"SecurityWeek reported the incident.");
+  assert.match(spokenMarkupIssue("See www.example.com for details."),/web addresses/);
+  assert.match(spokenMarkupIssue("[pause] Let's continue."),/stage directions/);
+  assert.equal(spokenMarkupIssue("As SecurityWeek reported, the company confirmed the incident."),null);
 });
 
 test("long repeated spoken passages are attributed to the later chapter", () => {

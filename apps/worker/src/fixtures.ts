@@ -8,7 +8,7 @@ export class FixtureOpenAI implements ResearchProvider,TextProvider{
   if(name==="radio_outline"){const count=Number(prompt.match(/Return exactly (\d+) chapters/)?.[1]||4);return result({title:"Fixture program",chapters:Array.from({length:count},(_,i)=>({title:"Chapter "+(i+1),focus:"An illustrative step in the explanation"}))} as T,"fixture-writing")}
   if(name==="radio_review"){
    const needsRewrite=prompt.includes("fixture review rewrite")&&prompt.includes("Phase: initial");
-   return result((needsRewrite?{approved:false,issues:[{chapterOrdinal:0,reason:"Fixture issue to exercise the bounded rewrite path."}]}:{approved:true,issues:[]}) as T,"fixture-review");
+   return result((needsRewrite?{approved:false,issues:[{chapterOrdinal:1,reason:"Fixture issue to exercise the bounded rewrite path."}]}:{approved:true,issues:[]}) as T,"fixture-review");
   }
   if(name==="radio_chapter"||name==="radio_chapter_rewrite"){
    const target=Number(prompt.match(/Aim for (\d+) spoken words/)?.[1]||400),words=example.split(/\s+/);
@@ -16,6 +16,7 @@ export class FixtureOpenAI implements ResearchProvider,TextProvider{
    const blocks=Array.from({length:Math.ceil(target/22)},(_,segment)=>"In chapter "+(ordinal+1)+", example "+(segment+1)+", "+Array.from({length:18},(_,offset)=>words[(segment*18+offset)%words.length]).join(" ")+".");
    const personaCount=JSON.parse(prompt.match(/Personas: (\[[^\n]*\])/)?.[1]||"[]").length;
    const turns=personaCount>1?[{speaker:0,text:blocks.slice(0,Math.ceil(blocks.length/2)).join(" "),delivery:"curious",sourceIds:[]},{speaker:1,text:blocks.slice(Math.ceil(blocks.length/2)).join(" "),delivery:"warm",sourceIds:[]}]:[{speaker:0,text:blocks.join(" "),delivery:"warm",sourceIds:[]}];
+   if(name==="radio_chapter"&&ordinal===0&&prompt.includes("fixture review rewrite"))turns[0].text="[A source](https://example.com/report) explains the context. "+turns[0].text;
    return result({title:"Fixture chapter",turns} as T,"fixture-writing")
   }
   return result({text:"This is a local fixture answer about the current chapter. It confirms that the saved question, response, and audio pipeline can complete without a paid provider call.",delivery:"warm"} as T,"fixture-writing");

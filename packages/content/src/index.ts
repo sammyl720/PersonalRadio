@@ -17,6 +17,20 @@ export function voiceText(text:string,delivery:Delivery|undefined,profile:"lates
   return deliveryTags[safeDelivery]+" "+text;
 }
 
+// Generated speech must be prose. The model sometimes returns citation markup even
+// when prompted not to, which otherwise becomes audible in the paid voice output.
+export function spokenMarkupIssue(text:string):string|null{
+  if(/\b(?:https?:\/\/|www\.)\S+/i.test(text)||/\[[^\]\n]+\]\([^)\n]+\)/.test(text))return "Replace raw web addresses and Markdown links with natural source attribution; keep source IDs in metadata.";
+  if(/\[(?:source|citation|pause|laughs?|chuckles?|sighs?|whispers?|warm|curious|playful|thoughtful)\b[^\]\n]{0,80}\]/i.test(text)||/`[^`\n]+`|\*\*[^*\n]+\*\*/.test(text))return "Remove citation notation, formatting marks, and stage directions from spoken text.";
+  return null;
+}
+
+// Older saved episodes can contain model-authored Markdown. Keep their transcript
+// readable without changing the recording or creating links from unverified URLs.
+export function readableTranscriptText(text:string):string{
+  return text.replace(/\[([^\]\n]+)\]\((?:https?:\/\/|www\.)[^)\n]+\)/gi,"$1");
+}
+
 export function estimateVoiceCharacters(minutes:number) { return Math.ceil(minutes*WORDS_PER_MINUTE*CHARS_PER_WORD); }
 export function estimateEpisodeUsd(minutes:number, rate:number|null, reserve=0.2) {
   if (rate == null) return null;
