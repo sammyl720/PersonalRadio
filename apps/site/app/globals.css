@@ -16,3 +16,51 @@
 .progress-conflict{flex-wrap:wrap}.progress-conflict span{min-width:220px}.progress-conflict button{min-height:44px;padding:0 14px;border:1px solid #75b8ae;border-radius:8px;font-weight:700}.progress-conflict button:hover{background:#245650}
 
 .sources a{grid-template-columns:minmax(0,1fr) auto;min-width:0}.sources a strong{overflow-wrap:anywhere}
+
+/* Keep generated titles, transcripts, questions, and source metadata inside the viewport. */
+.app-shell{overflow-wrap:anywhere}
+.modal{overflow-wrap:anywhere}
+.app-shell,.layout,.content,.page,.detail-main,.detail-grid>section,.detail-section,.host-card,.episode-info,.settings-row>div{min-width:0;max-width:100%}
+.section-title>div,.estimate-card>div{min-width:0}
+.section-title p,.estimate-card p,.estimate-card>small{overflow-wrap:anywhere}
+.estimate-card{grid-template-columns:minmax(0,1fr) auto}
+.episode-list,.sources{grid-template-columns:minmax(0,1fr)}
+.episode-card{min-width:0;max-width:100%}
+.episode-info p{display:block}
+.settings-row .subtle-tag,.settings-row .connection{min-width:0;max-width:45%;white-space:normal;overflow-wrap:anywhere;text-align:right}
+.banner span,.progress-conflict span{min-width:0}
+.detail-grid{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}
+.page h1,.page h2,.page h3,.episode-info p,.host-option strong,.host-option small,.host-card p,.host-voice,.detail-main>p,.transcript-chapter,.message,.approval,.banner span,.progress-panel,.info-list strong,.run-mode h1,.run-mode>p{overflow-wrap:anywhere}
+.host-option>span:nth-child(2),.estimate-card>div>div,.progress-panel>div,.progress-panel>span,.chapter-list button span:nth-child(2),.sources a span,.sources a strong,.sources a small{min-width:0}
+.chapter-list button{width:100%;min-width:0}
+.chapter-list button span:nth-child(2),.sources a span,.sources a strong,.sources a small,.progress-panel>span{overflow-wrap:anywhere}
+.chapter-list time{flex:none}
+.sources a{max-width:100%}
+.run-mode>*{max-width:100%}
+.run-art{min-width:0;min-height:0;aspect-ratio:1;height:auto}
+.run-extras{max-width:100%;flex-wrap:wrap}
+.run-extras select{min-width:0;flex:1 1 150px}
+
+@media(max-width:700px){
+ .estimate-card{grid-template-columns:minmax(0,1fr)}
+ .detail-main{flex:1;min-width:0}
+ .detail-grid{grid-template-columns:minmax(0,1fr)}
+ .episode-info h3{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+ .episode-info p{display:block}
+ .episode-info .status{vertical-align:middle;margin-top:4px}
+ .segmented button{min-width:0;padding:7px 3px;line-height:1.25;overflow-wrap:anywhere}
+ .library-tools select,.library-tools .filter-button{min-width:0;max-width:100%;flex:1 1 135px}
+ .settings-row>div{min-width:0}
+ .progress-panel{align-items:flex-start;flex-direction:column}
+ .run-extras{width:min(100%,420px)}
+}
+
+@media(max-width:480px){
+ .settings-row{align-items:stretch;flex-direction:column;gap:10px;padding:14px 0}
+ .settings-row>div{max-width:100%}
+ .settings-row select,.settings-row .small-number{width:100%;max-width:none}
+ .settings-row input[type=checkbox]{align-self:flex-start}
+ .settings-row .subtle-tag,.settings-row .connection{max-width:100%;white-space:normal;text-align:left;overflow-wrap:anywhere}
+ .run-controls{gap:clamp(10px,5vw,24px)}
+ .run-controls .run-play{width:76px;height:76px}
+}
