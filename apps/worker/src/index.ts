@@ -195,8 +195,9 @@ async function episode(l:Lease){
  }
  input=await removeWeakCitations(l,await jobInput(l));
  if(input.chapters.reduce((sum,x)=>sum+countWords(x.spoken_text),0)<wordsTarget*0.75)throw new Error("script_too_short");
- const deterministicIssues=deterministicScriptIssues(input,cp.outline.chapters.length,perChapter*0.55);
- if(!cp.reviewResolved&&!cp.scriptFrozen&&!input.chunks.some(x=>x.state==="complete")){
+ const scriptAlreadyFrozen=!!cp.scriptFrozen||input.chunks.some(x=>x.state==="complete");
+ const deterministicIssues=scriptAlreadyFrozen?[]:deterministicScriptIssues(input,cp.outline.chapters.length,perChapter*0.55);
+ if(!cp.reviewResolved&&!scriptAlreadyFrozen){
   if(!Array.isArray(cp.reviewIssues)){
    const issues=mergeReviewIssues(await reviewScript(l,input,"initial"),deterministicIssues);
    cp.reviewIssues=issues;cp.rewrittenOrdinals=[];
@@ -234,7 +235,7 @@ async function episode(l:Lease){
   cp.reviewResolved=true;await checkpoint(l,"check",{reviewResolved:true});
   input=await jobInput(l);
  }
- if(deterministicScriptIssues(input,cp.outline.chapters.length,perChapter*0.55).length)throw new Error("review_unresolved");
+ if(!scriptAlreadyFrozen&&deterministicScriptIssues(input,cp.outline.chapters.length,perChapter*0.55).length)throw new Error("review_unresolved");
  const totalWords=input.chapters.reduce((sum,x)=>sum+countWords(x.spoken_text),0);
  if(totalWords<wordsTarget*0.75)throw new Error("script_too_short");
  const chunks:{turns:{text:string;voiceId:string}[];chapterId:string}[]=[];
