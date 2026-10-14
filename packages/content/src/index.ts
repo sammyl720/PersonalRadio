@@ -1,6 +1,21 @@
 export const WORDS_PER_MINUTE = 145;
 export const CHARS_PER_WORD = 6;
 export const PRICING_VERSION = "2026-10-11-owner-rate-v1";
+export const deliveries = ["neutral", "warm", "curious", "playful", "thoughtful"] as const;
+export type Delivery = typeof deliveries[number];
+
+const deliveryTags:Record<Exclude<Delivery,"neutral">,string>={
+  warm:"[warm, conversational]",
+  curious:"[curious]",
+  playful:"[lightly amused]",
+  thoughtful:"[thoughtful, measured]"
+};
+const graveSubject=/\b(?:kill(?:ed|ing)?|death|dead|fatal(?:ity|ities)?|casualt(?:y|ies)|injur(?:y|ies|ed)|attack(?:s|ed)?|war|missile(?:s)?|bomb(?:s|ing|ed)?|shooting(?:s)?|violence|victim(?:s)?|traffick(?:ed|ing)?|abuse|terror(?:ism|ist)?|hostage(?:s)?|massacre|disaster)\b/i;
+export function voiceText(text:string,delivery:Delivery|undefined,profile:"latest"|"economy"){
+  if(profile!=="latest"||!delivery||delivery==="neutral")return text;
+  const safeDelivery=delivery==="playful"&&graveSubject.test(text)?"thoughtful":delivery;
+  return deliveryTags[safeDelivery]+" "+text;
+}
 
 export function estimateVoiceCharacters(minutes:number) { return Math.ceil(minutes*WORDS_PER_MINUTE*CHARS_PER_WORD); }
 export function estimateEpisodeUsd(minutes:number, rate:number|null, reserve=0.2) {

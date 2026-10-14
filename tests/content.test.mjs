@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { estimateEpisodeUsd, estimateVoiceCharacters, parseSingleRange, splitTurns, countWords, durationTempo, repeatedChapterOrdinals } from "../packages/content/src/index.ts";
+import { estimateEpisodeUsd, estimateVoiceCharacters, parseSingleRange, splitTurns, countWords, durationTempo, repeatedChapterOrdinals, voiceText } from "../packages/content/src/index.ts";
 
 test("small tempo correction brings speech inside the duration tolerance",()=>{
   assert.equal(durationTempo(600000,600000),1);
@@ -33,6 +33,13 @@ test("speech chunks preserve voices and respect the character ceiling", () => {
   assert.deepEqual(chunks.flat().map(turn=>turn.voiceId),["host","host","guest"]);
   assert.throws(()=>splitTurns([{voiceId:"host",text:"A sentence that is much too long."}],10));
   assert.equal(countWords("one two three"),3);
+});
+
+test("voice direction stays out of the transcript and avoids playful delivery for harm",()=>{
+  const line="That shortcut is a tiny gift to your future self.";
+  assert.equal(voiceText(line,"playful","latest"),"[lightly amused] "+line);
+  assert.equal(voiceText(line,"playful","economy"),line);
+  assert.equal(voiceText("The attack injured civilians.","playful","latest"),"[thoughtful, measured] The attack injured civilians.");
 });
 
 test("long repeated spoken passages are attributed to the later chapter", () => {

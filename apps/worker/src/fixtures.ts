@@ -15,10 +15,10 @@ export class FixtureOpenAI implements ResearchProvider,TextProvider{
    const ordinal=Number(prompt.match(/Chapter ordinal: (\d+)/)?.[1]??Number(prompt.match(/Write chapter (\d+)/)?.[1]||1)-1);
    const blocks=Array.from({length:Math.ceil(target/22)},(_,segment)=>"In chapter "+(ordinal+1)+", example "+(segment+1)+", "+Array.from({length:18},(_,offset)=>words[(segment*18+offset)%words.length]).join(" ")+".");
    const personaCount=JSON.parse(prompt.match(/Personas: (\[[^\n]*\])/)?.[1]||"[]").length;
-   const turns=personaCount>1?[{speaker:0,text:blocks.slice(0,Math.ceil(blocks.length/2)).join(" "),sourceIds:[]},{speaker:1,text:blocks.slice(Math.ceil(blocks.length/2)).join(" "),sourceIds:[]}]:[{speaker:0,text:blocks.join(" "),sourceIds:[]}];
+   const turns=personaCount>1?[{speaker:0,text:blocks.slice(0,Math.ceil(blocks.length/2)).join(" "),delivery:"curious",sourceIds:[]},{speaker:1,text:blocks.slice(Math.ceil(blocks.length/2)).join(" "),delivery:"warm",sourceIds:[]}]:[{speaker:0,text:blocks.join(" "),delivery:"warm",sourceIds:[]}];
    return result({title:"Fixture chapter",turns} as T,"fixture-writing")
   }
-  return result({text:"This is a local fixture answer about the current chapter. It confirms that the saved question, response, and audio pipeline can complete without a paid provider call."} as T,"fixture-writing");
+  return result({text:"This is a local fixture answer about the current chapter. It confirms that the saved question, response, and audio pipeline can complete without a paid provider call.",delivery:"warm"} as T,"fixture-writing");
  }
 }
 export class FixtureSpeech implements SpeechProvider,TranscriptionProvider{

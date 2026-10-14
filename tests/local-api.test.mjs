@@ -37,6 +37,8 @@ fixtureTest("local fixture worker completes a private episode, playback, and ans
       await new Promise(resolve=>setTimeout(resolve,1000));
     }
     assert.equal(detail.episode.state,"ready");assert.equal(detail.chapters.length,4);
+    assert.ok(detail.chapters.every(c=>c.turns.every(turn=>["neutral","warm","curious","playful","thoughtful"].includes(turn.delivery))),"delivery metadata survives the Site checkpoint");
+    assert.ok(detail.chapters.every(c=>!c.spokenText.includes("[warm,")&&!c.spokenText.includes("[curious]")),"voice cues stay out of the transcript");
     assert.equal(detail.jobs[0].checkpoint.reviewResolved,true);
     assert.deepEqual(detail.jobs[0].checkpoint.rewrittenOrdinals,[0]);
     assert.ok(detail.usage.some(event=>event.operation==="script_review_initial"));

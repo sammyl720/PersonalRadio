@@ -11,6 +11,12 @@ Run local checks with `npm run worker:check`, `npm run site:build`, and `RADIO_T
 - A first 30-minute news request completed on 2026-10-13. The measured MP3 is 34:19, within the 15% duration tolerance, and authenticated browser playback started. Its final voice quote was $2.73 and its recorded monetary usage was about $2.25, still estimated rather than reconciled to a provider invoice. Its transcript cited a BBC schedule page and broad news indexes for specific claims, so that run failed source usability.
 - A second 30-minute news request completed on 2026-10-13 after the source filter and saved-job citation cleanup were deployed. The five-chapter MP3 measures 32:59 (9.9% above the request), and authenticated browser playback started and paused. The final voice quote was $2.77 under the approved $5 cap; recorded monetary usage is about $2.27 and remains an estimate, not a provider invoice. The news cutoff was 6:54 PM EDT. All seven cited links opened to specific AP reports or official UK, Meta, and Google announcements dated October 13. Sampled claims matched the linked pages; this is a source-usability and duration pass, not an exhaustive independent fact check. The Site currently shows publication dates as unknown even though the linked pages display dates.
 
+## Engaging delivery update
+
+- New scripts use host tone, pace, and instructions; chapters are prompted for varied rhythm, concrete details, natural transitions, and light wit where appropriate. The reviewer checks for flat repetition and humor that trivializes harm.
+- Eleven v4 receives bounded per-turn delivery cues while the transcript keeps only spoken words. Economy speech receives plain text. The final voice quote includes cue characters actually sent to synthesis.
+- Local fixture generation, persistence, two-host playback, and spoken-answer flow passed on 2026-10-14 (11 tests total). A new paid live episode and listening evaluation of the revised writing and Eleven v4 delivery have not yet been run.
+
 ## Paid live evaluation to schedule
 
 1. Run a 60-minute explainer only after explicitly approving its cost and any needed episode-cap change; at the configured $0.08 per 1,000 characters, the initial voice estimate alone is about $5.02 including the 20% reserve, above the current $5 episode cap. Close the browser during generation and verify completion after reopening. The fixture recovery test already covers interrupted synthesis without paid provider calls.
