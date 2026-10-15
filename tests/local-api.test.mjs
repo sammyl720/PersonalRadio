@@ -17,7 +17,9 @@ fixtureTest("local fixture worker completes a private episode, playback, and ans
   const anonymous=await fetch(new URL("/api/episodes",origin));assert.equal(anonymous.status,401);
   const me=await call("me");assert.equal(me.response.status,200);
   const voices=await call("voices");const fixtureVoices=voices.data.items.filter(x=>x.id.startsWith("fixture-"));assert.ok(fixtureVoices.length>=2,"fixture worker must be running");
-  await call("settings","PATCH",{voiceUsdPerThousandCharacters:0.01});
+  const tuned=await call("settings","PATCH",{voiceUsdPerThousandCharacters:0.01,stylePreference:"lively"});
+  assert.equal(tuned.data.settings.stylePreference,"lively");
+  const invalidStyle=await call("settings","PATCH",{stylePreference:"make up the news"});assert.equal(invalidStyle.response.status,422);
   const personas=(await call("personas")).data.items;assert.ok(personas.length>=2);
   for(const [index,p] of personas.slice(0,2).entries()){const saved=await call("personas/"+p.id,"PATCH",{...p,voiceId:fixtureVoices[index].id});assert.equal(saved.response.status,200)}
   const input={mode:"explainer",prompt:"Explain how a steam turbine converts heat into useful work (fixture review rewrite)",targetMinutes:10,primaryPersonaId:personas[0].id,secondaryPersonaId:personas[1].id,language:"English",freshnessHours:24,sourceUrls:[],sourceNotes:"",voiceProfile:"latest",interactionEnabled:true};
@@ -25,6 +27,8 @@ fixtureTest("local fixture worker completes a private episode, playback, and ans
   try{
     const created=await call("episodes","POST",input,{"Idempotency-Key":key});assert.equal(created.response.status,202);episodeId=created.data.episodeId;
     const repeated=await call("episodes","POST",input,{"Idempotency-Key":key});assert.equal(repeated.data.jobId,created.data.jobId);
+    const laterStyle=await call("settings","PATCH",{stylePreference:"deeper"});assert.equal(laterStyle.data.settings.stylePreference,"deeper");
+    const snapshot=(await call("episodes/"+episodeId)).data;assert.equal(snapshot.episode.stylePreference,"lively","the episode keeps its creation-time style");
     const conflict=await call("episodes","POST",{...input,prompt:"Another request with the same idempotency key"},{"Idempotency-Key":key});assert.equal(conflict.response.status,409);
     let detail;
     for(let i=0;i<100;i++){

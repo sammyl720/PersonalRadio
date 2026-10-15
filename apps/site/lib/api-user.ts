@@ -21,7 +21,7 @@ export async function handleUser(request:Request,parts:string[]):Promise<Respons
   if(method==="GET"){return reply({settings:safeSettings(await one("SELECT * FROM owner_settings WHERE owner_user_id=?",id))});}
   if(method==="PATCH"){
    const input=parse<any>(settingsPatchSchema,await bodyJson(request));
-   const map:Record<string,string>={defaultPersonaId:"default_persona_id",defaultLanguage:"default_language",defaultMinutes:"default_minutes",playbackSpeed:"playback_speed",interactionEnabled:"interaction_enabled",autoResume:"auto_resume",retainRecordings:"retain_recordings",episodeBudgetUsd:"episode_budget_usd",answerBudgetUsd:"answer_budget_usd",monthlyBudgetUsd:"monthly_budget_usd",voiceUsdPerThousandCharacters:"voice_usd_per_thousand_characters"};
+   const map:Record<string,string>={defaultPersonaId:"default_persona_id",defaultLanguage:"default_language",defaultMinutes:"default_minutes",stylePreference:"style_preference",playbackSpeed:"playback_speed",interactionEnabled:"interaction_enabled",autoResume:"auto_resume",retainRecordings:"retain_recordings",episodeBudgetUsd:"episode_budget_usd",answerBudgetUsd:"answer_budget_usd",monthlyBudgetUsd:"monthly_budget_usd",voiceUsdPerThousandCharacters:"voice_usd_per_thousand_characters"};
    const entries=Object.entries(input);if(entries.length){
     const columns=entries.map(([k])=>map[k]+"=?").join(",");
     await run("UPDATE owner_settings SET "+columns+",updated_at=? WHERE owner_user_id=?",...entries.map(([,v])=>typeof v==="boolean"?(v?1:0):v),now(),id);
@@ -88,7 +88,7 @@ export async function handleUser(request:Request,parts:string[]):Promise<Respons
    const response={episodeId,jobId,state:"queued",estimate:quote,pricingVersion:quote.pricingVersion};
    try{
     await db().batch([
-     db().prepare("INSERT INTO episodes(id,owner_user_id,mode,prompt,source_notes,source_urls_json,requested_minutes,language,freshness_hours,voice_profile,interaction_enabled,persona_snapshot_json,title,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(episodeId,id,input.mode,input.prompt,input.sourceNotes,j(input.sourceUrls),input.targetMinutes,input.language,input.freshnessHours,input.voiceProfile,input.interactionEnabled?1:0,j(snapshot),input.prompt.slice(0,100),"queued",t,t),
+     db().prepare("INSERT INTO episodes(id,owner_user_id,mode,prompt,source_notes,source_urls_json,requested_minutes,language,freshness_hours,voice_profile,style_preference,interaction_enabled,persona_snapshot_json,title,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(episodeId,id,input.mode,input.prompt,input.sourceNotes,j(input.sourceUrls),input.targetMinutes,input.language,input.freshnessHours,input.voiceProfile,settings.style_preference,input.interactionEnabled?1:0,j(snapshot),input.prompt.slice(0,100),"queued",t,t),
      db().prepare("INSERT INTO jobs(id,owner_user_id,episode_id,kind,stage,state,next_run_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)").bind(jobId,id,episodeId,"episode","research","queued",t,t,t),
      db().prepare("INSERT INTO idempotency_keys(owner_user_id,route,key,payload_hash,resource_id,response_json,expires_at) VALUES(?,?,?,?,?,?,?)").bind(id,"POST /api/episodes",key,hash,episodeId,j(response),new Date(Date.now()+86400000).toISOString())
     ]);

@@ -54,6 +54,7 @@ export async function requireEpisode(ownerId:string,id:string){
 }
 export function safeSettings(row:any){return {
  timezone:row.timezone,defaultPersonaId:row.default_persona_id,defaultLanguage:row.default_language,defaultMinutes:row.default_minutes,
+ stylePreference:row.style_preference,
  playbackSpeed:row.playback_speed,interactionEnabled:!!row.interaction_enabled,autoResume:!!row.auto_resume,retainRecordings:!!row.retain_recordings,
  episodeBudgetUsd:row.episode_budget_usd,answerBudgetUsd:row.answer_budget_usd,monthlyBudgetUsd:row.monthly_budget_usd,
  voiceUsdPerThousandCharacters:row.voice_usd_per_thousand_characters,pricingVersion:row.pricing_version
@@ -61,7 +62,7 @@ export function safeSettings(row:any){return {
 export function publicEpisode(row:any){return {
  id:row.id,title:row.title,mode:row.mode,prompt:row.prompt,requestedMinutes:row.requested_minutes,language:row.language,
  personaSnapshot:parsed(row.persona_snapshot_json,[]),state:row.state,cutoffAt:row.cutoff_at,actualDurationMs:row.actual_duration_ms,
- finalAssetId:row.final_asset_id,favorite:!!row.favorite,createdAt:row.created_at,updatedAt:row.updated_at,voiceProfile:row.voice_profile
+ finalAssetId:row.final_asset_id,favorite:!!row.favorite,createdAt:row.created_at,updatedAt:row.updated_at,voiceProfile:row.voice_profile,stylePreference:row.style_preference
 };}
 export async function hashPayload(value:unknown){return sha256Hex(utf8(j(value)));}
 export async function existingIdempotency(ownerId:string,route:string,key:string,hash:string){

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const episodeModes = ["news", "explainer", "custom"] as const;
 export const episodeStates = ["queued", "researching", "writing", "checking", "awaiting_approval", "voicing", "assembling", "ready", "failed", "cancelled", "deleting"] as const;
+export const presentationStyles = ["balanced", "lively", "deeper", "concise"] as const;
 export const jobStates = ["queued", "running", "retry_wait", "awaiting_approval", "completed", "failed", "cancelled"] as const;
 export const uuid = z.string().uuid();
 export const isoDate = z.string().datetime({ offset: true });
@@ -34,6 +35,7 @@ export const personaSchema = z.object({
 });
 
 export const settingsPatchSchema = z.object({
+  stylePreference: z.enum(presentationStyles).optional(),
   defaultPersonaId: uuid.nullable().optional(),
   defaultLanguage: z.string().min(2).max(32).optional(),
   defaultMinutes: z.union([z.literal(10), z.literal(20), z.literal(30), z.literal(45), z.literal(60)]).optional(),

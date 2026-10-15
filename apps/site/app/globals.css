@@ -91,3 +91,6 @@
 .usage-details summary:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .settings-row .setting-text{width:160px;max-width:45%;min-width:0}
 @media(max-width:480px){.settings-row .setting-text{width:100%;max-width:100%}}
+.tune-section p{margin:0 0 18px;color:#b5c5d8;font-size:13px;line-height:1.6}
+.tune-section select{display:block;width:min(100%,320px);min-width:0;margin:8px 0 11px}
+.tune-section small{display:block;color:var(--muted);font-size:12px;line-height:1.5;overflow-wrap:anywhere}

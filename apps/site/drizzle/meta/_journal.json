@@ -8,6 +8,13 @@
       "when": 1791735527237,
       "tag": "0000_luxuriant_tomorrow_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792104436904,
+      "tag": "0001_foamy_raider",
+      "breakpoints": true
     }
   ]
 }
