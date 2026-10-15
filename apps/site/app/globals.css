@@ -64,3 +64,27 @@
  .run-controls{gap:clamp(10px,5vw,24px)}
  .run-controls .run-play{width:76px;height:76px}
 }
+
+/* Keep both library actions reachable on narrow screens. */
+@media(max-width:700px){
+ .episode-actions>.icon-button:first-child{display:grid}
+ .episode-actions{flex:none;gap:0}
+ .episode-actions .icon-button{width:40px;height:44px}
+ .episode-card{gap:7px}
+ .episode-cover{width:48px;height:58px}
+ .episode-info .episode-meta{flex-wrap:wrap;column-gap:5px;row-gap:2px}
+}
+@media(max-width:360px){
+ .episode-cover{width:42px}
+ .episode-actions .icon-button{width:36px}
+}
+
+.usage-list{display:grid;gap:9px;margin-top:15px}
+.usage-item{display:flex;justify-content:space-between;gap:12px;padding:11px;border:1px solid #304057;border-radius:10px;background:#101b2a;font-size:12px}
+.usage-item>div{min-width:0;overflow-wrap:anywhere}
+.usage-item strong,.usage-item small{display:block}
+.usage-item small{margin-top:4px;color:var(--muted)}
+.usage-item>span{flex:none;color:#cce0fb}
+.usage-note{margin:12px 0 0;color:var(--muted);font-size:12px;line-height:1.5}
+.settings-row .setting-text{width:160px;max-width:45%;min-width:0}
+@media(max-width:480px){.settings-row .setting-text{width:100%;max-width:100%}}
