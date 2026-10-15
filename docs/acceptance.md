@@ -15,6 +15,7 @@ Run local checks with `npm run worker:check`, `npm run site:build`, and `RADIO_T
 
 - New researched episodes read explicit publication metadata from cited HTTPS pages. If the page has no usable publication timestamp or blocks the fetch, the date remains unknown. Existing episode records are not backfilled. The parser and private-address rejection pass local tests; a direct read of a GOV.UK press release returned its stated publication time. AP returned HTTP 403 in the same check, so those articles may still show unknown. A new paid production episode has not been run to validate broader publisher coverage.
 - Mobile library cards retain the Favorite action, with a second Favorite control on the episode detail page. Settings now exposes the stored language, question, and recording-retention defaults. Episode detail lists provider operations and billable units beside estimated costs; it labels unknown costs and does not imply invoice reconciliation.
+- Settings and finished episodes now offer a presentation style for future listens: Balanced, More lively, More depth, or Get to the point. New episodes snapshot that choice at creation, and the worker applies it to the outline, chapters, and rewrites while retaining factual and duration checks. Existing episodes keep their original style. The 15 local tests passed, including validation and snapshot persistence; a paid live episode has not been run to judge the audible effect.
 
 ## Engaging delivery update
 
