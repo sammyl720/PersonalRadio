@@ -27,7 +27,7 @@ fixtureTest("local fixture worker completes a private episode, playback, and ans
   assert.equal((await call("personas/"+companion.id,"PATCH",{...companion,voiceId:null})).response.status,200);
   const configuredHosts=await call("personas");assert.equal(configuredHosts.data.fallbackVoiceId,fixtureVoices[0].id);
   const input={mode:"explainer",prompt:"Explain how a steam turbine converts heat into useful work (fixture review rewrite)",targetMinutes:10,primaryPersonaId:anchor.id,secondaryPersonaId:guide.id,language:"English",freshnessHours:24,sourceUrls:[],sourceNotes:"",voiceProfile:"latest",interactionEnabled:true};
-  const key=crypto.randomUUID();let episodeId,doomedId,fallbackId,secondReviewId;
+  const key=crypto.randomUUID();let episodeId,doomedId,fallbackId,secondReviewId,repeatedNewsId;
   try{
     const fallbackCreated=await call("episodes","POST",{...input,primaryPersonaId:companion.id,secondaryPersonaId:undefined,prompt:"Explain why steam turbines need a condenser (fallback voice fixture)"},{"Idempotency-Key":crypto.randomUUID()});
     assert.equal(fallbackCreated.response.status,202);fallbackId=fallbackCreated.data.episodeId;
@@ -79,6 +79,21 @@ fixtureTest("local fixture worker completes a private episode, playback, and ans
     assert.equal(revised.usage.filter(event=>event.operation==="script_review_final").length,2);
     assert.equal(revised.usage.filter(event=>event.operation==="chapter_rewrite").length,2);
     assert.ok(revised.chapters[1].spokenText.includes("The second editorial pass corrected this chapter."));
+    const repeatedNews=await call("episodes","POST",{...input,mode:"news",prompt:"A fixture repeated news briefing",secondaryPersonaId:undefined},{"Idempotency-Key":crypto.randomUUID()});
+    assert.equal(repeatedNews.response.status,202);repeatedNewsId=repeatedNews.data.episodeId;
+    let supplemented;
+    for(let i=0;i<100;i++){
+      supplemented=(await call("episodes/"+repeatedNewsId)).data;
+      if(supplemented.episode.state==="awaiting_approval")break;
+      assert.notEqual(supplemented.episode.state,"failed",JSON.stringify(supplemented.jobs.at(-1)));
+      await new Promise(resolve=>setTimeout(resolve,500));
+    }
+    assert.equal(supplemented.episode.state,"awaiting_approval");
+    assert.equal(supplemented.jobs[0].checkpoint.reviewResearchAdded,true);
+    assert.equal(supplemented.jobs[0].checkpoint.reviewResolved,true);
+    assert.ok(supplemented.sources.some(source=>source.url==="https://example.com/fixture/second-report"));
+    assert.ok(supplemented.usage.some(event=>event.operation==="review_web_search"));
+    assert.ok(supplemented.chapters[1].spokenText.includes("The added report gives this chapter distinct material."));
     assert.equal(detail.episode.personaSnapshot.length,2);
     assert.notEqual(detail.episode.personaSnapshot[0].voiceId,detail.episode.personaSnapshot[1].voiceId);
     assert.ok(detail.chapters.some(c=>c.turns.some(turn=>turn.speaker===1)),"the second host speaks");
@@ -129,5 +144,5 @@ fixtureTest("local fixture worker completes a private episode, playback, and ans
     }
     assert.equal(cleanupStatus,404,"cleanup job and episode records were removed");
     assert.equal((await call("episodes/"+doomedId)).response.status,404);
-  }finally{if(fallbackId)await call("episodes/"+fallbackId,"DELETE",{});if(episodeId)await call("episodes/"+episodeId,"DELETE",{});if(secondReviewId)await call("episodes/"+secondReviewId,"DELETE",{});if(doomedId)await call("episodes/"+doomedId,"DELETE",{});}
+  }finally{if(fallbackId)await call("episodes/"+fallbackId,"DELETE",{});if(episodeId)await call("episodes/"+episodeId,"DELETE",{});if(secondReviewId)await call("episodes/"+secondReviewId,"DELETE",{});if(repeatedNewsId)await call("episodes/"+repeatedNewsId,"DELETE",{});if(doomedId)await call("episodes/"+doomedId,"DELETE",{});}
 },180_000);

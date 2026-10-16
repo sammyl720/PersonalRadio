@@ -3,13 +3,17 @@ import type { CallOptions, ProviderResult, ResearchProvider, SpeechProvider, Tex
 const example="A clear explanation starts with the central idea, then follows what causes it and what changes as a result. Consider a familiar everyday example. Each step leads naturally to the next, giving the listener a useful mental picture without forcing them to remember technical labels. A careful account also says where uncertainty remains, and why the distinction matters. In the end, the listener should understand how the pieces fit together and be able to explain the idea in plain language.";
 function result<T>(data:T,model:string):ProviderResult<T>{return {data,model,requestId:"fixture",usage:{inputTokens:0,outputTokens:0}}}
 export class FixtureOpenAI implements ResearchProvider,TextProvider{
- async research():Promise<ProviderResult<{text:string;sources:{url:string;title:string|null}[]}>>{return result({text:"Fixture research: no real news retrieval. This mode is for local testing only.",sources:[{url:"https://example.com/fixture-source",title:"Fixture source"}]},"fixture-research")}
+ async research(query:string):Promise<ProviderResult<{text:string;sources:{url:string;title:string|null}[]}>>{
+  if(query.startsWith("Find additional")&&query.includes("fixture repeated news"))return result({text:"Additional fixture reporting adds a separate verified development.",sources:[{url:"https://example.com/fixture/second-report",title:"Fixture second report"}]},"fixture-research");
+  return result({text:"Fixture research: no real news retrieval. This mode is for local testing only.",sources:[{url:"https://example.com/fixture-source",title:"Fixture source"}]},"fixture-research");
+ }
  async generateStructured<T>(prompt:string,_schema:object,name:string):Promise<ProviderResult<T>>{
   if(name==="radio_outline"){const count=Number(prompt.match(/Return exactly (\d+) chapters/)?.[1]||4);return result({title:"Fixture program",chapters:Array.from({length:count},(_,i)=>({title:"Chapter "+(i+1),focus:"An illustrative step in the explanation"}))} as T,"fixture-writing")}
   if(name==="radio_review"){
    const needsRewrite=prompt.includes("fixture review rewrite")&&prompt.includes("Phase: initial");
    const needsSecondPass=prompt.includes("fixture second review")&&(prompt.includes("Phase: initial")||prompt.includes("Phase: final")&&!prompt.includes("The second editorial pass corrected this chapter."));
-   return result((needsRewrite||needsSecondPass?{approved:false,issues:[{chapterOrdinal:1,reason:needsSecondPass&&prompt.includes("Phase: final")?"Second pass fixture issue: clarify the chapter further.":"Fixture issue to exercise the bounded rewrite path."}]}:{approved:true,issues:[]}) as T,"fixture-review");
+   const needsMoreNews=prompt.includes("fixture repeated news")&&(prompt.includes("Phase: initial")||!prompt.includes("The added report gives this chapter distinct material."));
+   return result((needsRewrite||needsSecondPass||needsMoreNews?{approved:false,issues:[{chapterOrdinal:1,reason:needsMoreNews?"This chapter repeats earlier news. Replace the recap with a distinct sourced report.":needsSecondPass&&prompt.includes("Phase: final")?"Second pass fixture issue: clarify the chapter further.":"Fixture issue to exercise the bounded rewrite path."}]}:{approved:true,issues:[]}) as T,"fixture-review");
   }
   if(name==="radio_chapter"||name==="radio_chapter_rewrite"){
    const target=Number(prompt.match(/Aim for (\d+) spoken words/)?.[1]||400),words=example.split(/\s+/);
@@ -21,6 +25,7 @@ export class FixtureOpenAI implements ResearchProvider,TextProvider{
    if(name==="radio_chapter"&&ordinal===0&&prompt.includes("fixture review rewrite"))turns[0].text="[A source](https://example.com/report) explains the context. "+turns[0].text;
    if(name==="radio_chapter"&&ordinal===2&&prompt.includes("fixture review rewrite"))return result({title:"Fixture chapter",turns:[{speaker:0,text:blocks.join(" "),delivery:"curious",sourceIds:[]}]} as T,"fixture-writing");
    if(name==="radio_chapter_rewrite"&&prompt.includes("Second pass fixture issue"))turns[0].text="The second editorial pass corrected this chapter. "+turns[0].text;
+   if(name==="radio_chapter_rewrite"&&prompt.includes("fixture repeated news")&&prompt.includes("Additional fixture reporting"))turns[0].text="The added report gives this chapter distinct material. "+turns[0].text;
    return result({title:"Fixture chapter",turns} as T,"fixture-writing")
   }
   return result({text:"This is a local fixture answer about the current chapter. It confirms that the saved question, response, and audio pipeline can complete without a paid provider call.",delivery:"warm"} as T,"fixture-writing");
