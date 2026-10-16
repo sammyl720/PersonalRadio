@@ -20,11 +20,23 @@ fixtureTest("local fixture worker completes a private episode, playback, and ans
   const tuned=await call("settings","PATCH",{voiceUsdPerThousandCharacters:0.01,stylePreference:"lively"});
   assert.equal(tuned.data.settings.stylePreference,"lively");
   const invalidStyle=await call("settings","PATCH",{stylePreference:"make up the news"});assert.equal(invalidStyle.response.status,422);
-  const personas=(await call("personas")).data.items;assert.ok(personas.length>=2);
-  for(const [index,p] of personas.slice(0,2).entries()){const saved=await call("personas/"+p.id,"PATCH",{...p,voiceId:fixtureVoices[index].id});assert.equal(saved.response.status,200)}
-  const input={mode:"explainer",prompt:"Explain how a steam turbine converts heat into useful work (fixture review rewrite)",targetMinutes:10,primaryPersonaId:personas[0].id,secondaryPersonaId:personas[1].id,language:"English",freshnessHours:24,sourceUrls:[],sourceNotes:"",voiceProfile:"latest",interactionEnabled:true};
-  const key=crypto.randomUUID();let episodeId,doomedId;
+  const personas=(await call("personas")).data.items;
+  const anchor=personas.find(p=>p.name==="Calm Anchor"),guide=personas.find(p=>p.name==="Curious Guide"),companion=personas.find(p=>p.name==="Warm Companion");
+  assert.ok(anchor&&guide&&companion);
+  for(const [index,p] of [anchor,guide].entries()){const saved=await call("personas/"+p.id,"PATCH",{...p,voiceId:fixtureVoices[index].id});assert.equal(saved.response.status,200)}
+  assert.equal((await call("personas/"+companion.id,"PATCH",{...companion,voiceId:null})).response.status,200);
+  const configuredHosts=await call("personas");assert.equal(configuredHosts.data.fallbackVoiceId,fixtureVoices[0].id);
+  const input={mode:"explainer",prompt:"Explain how a steam turbine converts heat into useful work (fixture review rewrite)",targetMinutes:10,primaryPersonaId:anchor.id,secondaryPersonaId:guide.id,language:"English",freshnessHours:24,sourceUrls:[],sourceNotes:"",voiceProfile:"latest",interactionEnabled:true};
+  const key=crypto.randomUUID();let episodeId,doomedId,fallbackId;
   try{
+    const fallbackCreated=await call("episodes","POST",{...input,primaryPersonaId:companion.id,secondaryPersonaId:undefined,prompt:"Explain why steam turbines need a condenser (fallback voice fixture)"},{"Idempotency-Key":crypto.randomUUID()});
+    assert.equal(fallbackCreated.response.status,202);fallbackId=fallbackCreated.data.episodeId;
+    const fallbackDetail=(await call("episodes/"+fallbackId)).data;
+    assert.equal(fallbackDetail.episode.personaSnapshot[0].name,"Warm Companion");
+    assert.equal(fallbackDetail.episode.personaSnapshot[0].voiceId,fixtureVoices[0].id,"unconfigured host uses the owner's configured voice");
+    const fallbackRemoved=await call("episodes/"+fallbackId,"DELETE",{});assert.equal(fallbackRemoved.response.status,202);
+    for(let i=0;i<100;i++){if((await call("episodes/"+fallbackId)).response.status===404)break;await new Promise(resolve=>setTimeout(resolve,100))}
+    assert.equal((await call("episodes/"+fallbackId)).response.status,404);fallbackId=undefined;
     const created=await call("episodes","POST",input,{"Idempotency-Key":key});assert.equal(created.response.status,202);episodeId=created.data.episodeId;
     const repeated=await call("episodes","POST",input,{"Idempotency-Key":key});assert.equal(repeated.data.jobId,created.data.jobId);
     const laterStyle=await call("settings","PATCH",{stylePreference:"deeper"});assert.equal(laterStyle.data.settings.stylePreference,"deeper");
@@ -101,5 +113,5 @@ fixtureTest("local fixture worker completes a private episode, playback, and ans
     }
     assert.equal(cleanupStatus,404,"cleanup job and episode records were removed");
     assert.equal((await call("episodes/"+doomedId)).response.status,404);
-  }finally{if(episodeId)await call("episodes/"+episodeId,"DELETE",{});if(doomedId)await call("episodes/"+doomedId,"DELETE",{});}
+  }finally{if(fallbackId)await call("episodes/"+fallbackId,"DELETE",{});if(episodeId)await call("episodes/"+episodeId,"DELETE",{});if(doomedId)await call("episodes/"+doomedId,"DELETE",{});}
 },180_000);

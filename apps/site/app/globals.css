@@ -94,3 +94,5 @@
 .tune-section p{margin:0 0 18px;color:#b5c5d8;font-size:13px;line-height:1.6}
 .tune-section select{display:block;width:min(100%,320px);min-width:0;margin:8px 0 11px}
 .tune-section small{display:block;color:var(--muted);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.host-voice-note{margin:14px 0 0;padding:12px 14px;border:1px solid #3d5976;border-radius:10px;background:#1a3048;color:#c5d9ee;font-size:12px;line-height:1.55;overflow-wrap:anywhere}
+.host-voice-note button{border:0;background:none;padding:0;color:#aad0ff;font:inherit;font-weight:700;text-decoration:underline;text-underline-offset:2px;cursor:pointer}

@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { createEpisodeSchema, personaSchema, settingsPatchSchema, progressSchema, questionSchema } from "../../../packages/contracts/src/index";
 import { parseSingleRange, sha256Hex, utf8 } from "../../../packages/content/src/index";
-import { ApiError, adjustReservation, all, bodyJson, bucket, db, enforceOrigin, estimate, existingIdempotency, hashPayload, idempotencyKey, initializeOwner, j, now, one, owner, parsed, publicEpisode, releaseReservation, reply, requireEpisode, reserve, rid, run, safeSettings } from "./radio";
+import { ApiError, adjustReservation, all, bodyJson, bucket, db, enforceOrigin, estimate, existingIdempotency, hashPayload, idempotencyKey, initializeOwner, j, now, one, owner, ownerVoiceFallback, parsed, publicEpisode, releaseReservation, reply, requireEpisode, reserve, rid, run, safeSettings } from "./radio";
 
 function parse<T>(schema:{safeParse:(value:unknown)=>{success:boolean;data?:T}},value:unknown):T{
  const result=schema.safeParse(value);if(!result.success)throw new ApiError("invalid_request",422,"Invalid request fields");return result.data as T;
@@ -30,7 +30,11 @@ export async function handleUser(request:Request,parts:string[]):Promise<Respons
   }
  }
  if(parts[0]==="personas"){
-  if(parts.length===1&&method==="GET"){return reply({items:(await all("SELECT * FROM personas WHERE owner_user_id=? AND archived_at IS NULL ORDER BY created_at",id)).map(mappedPersona)});}
+  if(parts.length===1&&method==="GET"){
+   const settings=await one("SELECT default_persona_id FROM owner_settings WHERE owner_user_id=?",id);
+   const [personas,fallback]=await Promise.all([all("SELECT * FROM personas WHERE owner_user_id=? AND archived_at IS NULL ORDER BY created_at",id),ownerVoiceFallback(id,settings.default_persona_id)]);
+   return reply({items:personas.map(mappedPersona),fallbackVoiceId:fallback?.voice_id||null});
+  }
   if(parts.length===1&&method==="POST"){
    const input=parse<any>(personaSchema,await bodyJson(request));
    const pid=rid(),t=now();
@@ -75,8 +79,10 @@ export async function handleUser(request:Request,parts:string[]):Promise<Respons
    if(!primary)throw new ApiError("invalid_host",422,"Choose an active primary host");
    const secondary=input.secondaryPersonaId?await one("SELECT * FROM personas WHERE id=? AND owner_user_id=? AND active=1 AND archived_at IS NULL",input.secondaryPersonaId,id):null;
    if(input.secondaryPersonaId&&!secondary)throw new ApiError("invalid_host",422,"Choose an active second host");
-   if(!primary.voice_id||secondary&&!secondary.voice_id)throw new ApiError("voice_unassigned",422,"Select an account voice for every host");
    const settings=await one("SELECT * FROM owner_settings WHERE owner_user_id=?",id);
+   const missingVoice=!primary.voice_id||!!secondary&&!secondary.voice_id;
+   const fallback=missingVoice?await ownerVoiceFallback(id,settings.default_persona_id):null;
+   if(missingVoice&&!fallback?.voice_id)throw new ApiError("voice_unassigned",422,"Choose an account voice in Hosts before creating an episode");
    const active=await one("SELECT count(*) n FROM episodes WHERE owner_user_id=? AND state IN ('researching','writing','checking','voicing','assembling') AND deleted_at IS NULL",id);
    const queued=await one("SELECT count(*) n FROM episodes WHERE owner_user_id=? AND state='queued' AND deleted_at IS NULL",id);
    if(Number(active.n)>=1&&Number(queued.n)>=2)throw new ApiError("queue_full",429,"Two episodes are already queued");
@@ -84,7 +90,7 @@ export async function handleUser(request:Request,parts:string[]):Promise<Respons
    if(quote.estimatedUsd!=null&&quote.estimatedUsd>settings.episode_budget_usd)throw new ApiError("episode_budget",422,"Estimate exceeds the per episode budget");
    const episodeId=rid(),jobId=rid(),t=now();
    if(quote.estimatedUsd!=null&&!await reserve(id,jobId,episodeId,quote.estimatedUsd))throw new ApiError("monthly_budget",422,"Monthly budget would be exceeded");
-   const snapshot=[primary,secondary].filter(Boolean).map((p:any)=>mappedPersona(p));
+   const snapshot=[primary,secondary].filter(Boolean).map((p:any)=>({...mappedPersona(p),voiceId:p.voice_id||fallback?.voice_id}));
    const response={episodeId,jobId,state:"queued",estimate:quote,pricingVersion:quote.pricingVersion};
    try{
     await db().batch([

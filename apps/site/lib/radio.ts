@@ -52,6 +52,9 @@ export async function requireEpisode(ownerId:string,id:string){
  const row=await one("SELECT * FROM episodes WHERE id=? AND owner_user_id=? AND deleted_at IS NULL",id,ownerId);
  if(!row)throw new ApiError("not_found",404,"Episode not found");return row;
 }
+export async function ownerVoiceFallback(ownerId:string,preferredPersonaId:string|null){
+ return one("SELECT voice_id FROM personas WHERE owner_user_id=? AND active=1 AND archived_at IS NULL AND voice_id IS NOT NULL AND voice_id<>'' ORDER BY CASE WHEN id=? THEN 0 WHEN name='Calm Anchor' THEN 1 ELSE 2 END,created_at,id LIMIT 1",ownerId,preferredPersonaId||"");
+}
 export function safeSettings(row:any){return {
  timezone:row.timezone,defaultPersonaId:row.default_persona_id,defaultLanguage:row.default_language,defaultMinutes:row.default_minutes,
  stylePreference:row.style_preference,
