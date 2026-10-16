@@ -27,7 +27,7 @@ fixtureTest("local fixture worker completes a private episode, playback, and ans
   assert.equal((await call("personas/"+companion.id,"PATCH",{...companion,voiceId:null})).response.status,200);
   const configuredHosts=await call("personas");assert.equal(configuredHosts.data.fallbackVoiceId,fixtureVoices[0].id);
   const input={mode:"explainer",prompt:"Explain how a steam turbine converts heat into useful work (fixture review rewrite)",targetMinutes:10,primaryPersonaId:anchor.id,secondaryPersonaId:guide.id,language:"English",freshnessHours:24,sourceUrls:[],sourceNotes:"",voiceProfile:"latest",interactionEnabled:true};
-  const key=crypto.randomUUID();let episodeId,doomedId,fallbackId;
+  const key=crypto.randomUUID();let episodeId,doomedId,fallbackId,secondReviewId;
   try{
     const fallbackCreated=await call("episodes","POST",{...input,primaryPersonaId:companion.id,secondaryPersonaId:undefined,prompt:"Explain why steam turbines need a condenser (fallback voice fixture)"},{"Idempotency-Key":crypto.randomUUID()});
     assert.equal(fallbackCreated.response.status,202);fallbackId=fallbackCreated.data.episodeId;
@@ -63,6 +63,22 @@ fixtureTest("local fixture worker completes a private episode, playback, and ans
     assert.ok(detail.usage.some(event=>event.operation==="script_review_initial"));
     assert.ok(detail.usage.some(event=>event.operation==="chapter_rewrite"));
     assert.ok(detail.usage.some(event=>event.operation==="script_review_final"));
+    const secondReview=await call("episodes","POST",{...input,prompt:"Explain why steam turbines need a condenser (fixture second review)",secondaryPersonaId:undefined},{"Idempotency-Key":crypto.randomUUID()});
+    assert.equal(secondReview.response.status,202);secondReviewId=secondReview.data.episodeId;
+    let revised;
+    for(let i=0;i<100;i++){
+      revised=(await call("episodes/"+secondReviewId)).data;
+      if(revised.episode.state==="awaiting_approval")break;
+      assert.notEqual(revised.episode.state,"failed",JSON.stringify(revised.jobs.at(-1)));
+      await new Promise(resolve=>setTimeout(resolve,500));
+    }
+    assert.equal(revised.episode.state,"awaiting_approval","a remaining final-review issue gets a second correction before paid speech");
+    assert.equal(revised.jobs[0].checkpoint.reviewRound,1);
+    assert.equal(revised.jobs[0].checkpoint.reviewResolved,true);
+    assert.deepEqual(revised.jobs[0].checkpoint.reviewRemaining,[]);
+    assert.equal(revised.usage.filter(event=>event.operation==="script_review_final").length,2);
+    assert.equal(revised.usage.filter(event=>event.operation==="chapter_rewrite").length,2);
+    assert.ok(revised.chapters[1].spokenText.includes("The second editorial pass corrected this chapter."));
     assert.equal(detail.episode.personaSnapshot.length,2);
     assert.notEqual(detail.episode.personaSnapshot[0].voiceId,detail.episode.personaSnapshot[1].voiceId);
     assert.ok(detail.chapters.some(c=>c.turns.some(turn=>turn.speaker===1)),"the second host speaks");
@@ -113,5 +129,5 @@ fixtureTest("local fixture worker completes a private episode, playback, and ans
     }
     assert.equal(cleanupStatus,404,"cleanup job and episode records were removed");
     assert.equal((await call("episodes/"+doomedId)).response.status,404);
-  }finally{if(fallbackId)await call("episodes/"+fallbackId,"DELETE",{});if(episodeId)await call("episodes/"+episodeId,"DELETE",{});if(doomedId)await call("episodes/"+doomedId,"DELETE",{});}
+  }finally{if(fallbackId)await call("episodes/"+fallbackId,"DELETE",{});if(episodeId)await call("episodes/"+episodeId,"DELETE",{});if(secondReviewId)await call("episodes/"+secondReviewId,"DELETE",{});if(doomedId)await call("episodes/"+doomedId,"DELETE",{});}
 },180_000);

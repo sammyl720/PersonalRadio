@@ -8,7 +8,8 @@ export class FixtureOpenAI implements ResearchProvider,TextProvider{
   if(name==="radio_outline"){const count=Number(prompt.match(/Return exactly (\d+) chapters/)?.[1]||4);return result({title:"Fixture program",chapters:Array.from({length:count},(_,i)=>({title:"Chapter "+(i+1),focus:"An illustrative step in the explanation"}))} as T,"fixture-writing")}
   if(name==="radio_review"){
    const needsRewrite=prompt.includes("fixture review rewrite")&&prompt.includes("Phase: initial");
-   return result((needsRewrite?{approved:false,issues:[{chapterOrdinal:1,reason:"Fixture issue to exercise the bounded rewrite path."}]}:{approved:true,issues:[]}) as T,"fixture-review");
+   const needsSecondPass=prompt.includes("fixture second review")&&(prompt.includes("Phase: initial")||prompt.includes("Phase: final")&&!prompt.includes("The second editorial pass corrected this chapter."));
+   return result((needsRewrite||needsSecondPass?{approved:false,issues:[{chapterOrdinal:1,reason:needsSecondPass&&prompt.includes("Phase: final")?"Second pass fixture issue: clarify the chapter further.":"Fixture issue to exercise the bounded rewrite path."}]}:{approved:true,issues:[]}) as T,"fixture-review");
   }
   if(name==="radio_chapter"||name==="radio_chapter_rewrite"){
    const target=Number(prompt.match(/Aim for (\d+) spoken words/)?.[1]||400),words=example.split(/\s+/);
@@ -19,6 +20,7 @@ export class FixtureOpenAI implements ResearchProvider,TextProvider{
    for(let start=0;start<blocks.length;start+=9){const beat=turns.length;turns.push({speaker:personaCount>1?beat%2:0,text:blocks.slice(start,start+9).join(" "),delivery:beat%2?"warm":"curious",sourceIds:[]})}
    if(name==="radio_chapter"&&ordinal===0&&prompt.includes("fixture review rewrite"))turns[0].text="[A source](https://example.com/report) explains the context. "+turns[0].text;
    if(name==="radio_chapter"&&ordinal===2&&prompt.includes("fixture review rewrite"))return result({title:"Fixture chapter",turns:[{speaker:0,text:blocks.join(" "),delivery:"curious",sourceIds:[]}]} as T,"fixture-writing");
+   if(name==="radio_chapter_rewrite"&&prompt.includes("Second pass fixture issue"))turns[0].text="The second editorial pass corrected this chapter. "+turns[0].text;
    return result({title:"Fixture chapter",turns} as T,"fixture-writing")
   }
   return result({text:"This is a local fixture answer about the current chapter. It confirms that the saved question, response, and audio pipeline can complete without a paid provider call.",delivery:"warm"} as T,"fixture-writing");

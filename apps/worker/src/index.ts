@@ -210,23 +210,37 @@ async function episode(l:Lease){
  if(!cp.reviewResolved&&!scriptAlreadyFrozen){
   if(!Array.isArray(cp.reviewIssues)){
    const issues=mergeReviewIssues(await reviewScript(l,input,"initial"),deterministicIssues);
-   cp.reviewIssues=issues;cp.rewrittenOrdinals=[];
-   await checkpoint(l,"check",{reviewIssues:issues,rewrittenOrdinals:[]});
+   cp.reviewIssues=issues;cp.rewrittenOrdinals=[];cp.reviewRound=0;
+   await checkpoint(l,"check",{reviewIssues:issues,rewrittenOrdinals:[],reviewRound:0});
   }
-  if(cp.reviewIssues.length>Math.max(5,cp.outline.chapters.length))throw new Error("review_unresolved");
-  for(const issue of cp.reviewIssues as ReviewIssue[]){
+  // Older jobs saved final findings but kept their original issue list, so retries
+  // skipped every already-rewritten chapter and failed the same review again.
+  if(cp.reviewRound===undefined&&Array.isArray(cp.reviewRemaining)&&cp.reviewRemaining.length){
+   cp.reviewIssues=cp.reviewRemaining;cp.rewrittenOrdinals=[];cp.reviewRound=1;
+   await checkpoint(l,"check",{reviewIssues:cp.reviewIssues,rewrittenOrdinals:[],reviewRound:1});
+  }
+  cp.rewrittenOrdinals=Array.isArray(cp.rewrittenOrdinals)?cp.rewrittenOrdinals:[];
+  let passesThisClaim=0;
+  for(;;){
+   if(cp.reviewIssues.length>Math.max(5,cp.outline.chapters.length))throw new Error("invalid_review");
+   for(const issue of cp.reviewIssues as ReviewIssue[]){
    if(cp.rewrittenOrdinals.includes(issue.chapterOrdinal))continue;
    const previous=input.chapters.find(c=>c.ordinal===issue.chapterOrdinal);
    if(!previous)throw new Error("invalid_review");
    const validSources=input.sources.filter(x=>usableResearchUrl(x.url));
    const originalWords=countWords(previous.spoken_text),minimumWords=Math.max(Math.ceil(perChapter*0.55),Math.min(Math.ceil(originalWords*0.85),Math.ceil(perChapter*1.1)));
-   let c:any;
+   let c:any,feedback="";
    for(let attempt=0;attempt<3;attempt++){
-    const prompt="Rewrite this one chapter to fix the reviewer issue while preserving its substantial spoken length, focus, and natural listening style. Change other content only as needed. "+styleGuide+" "+presentationStyle(ep)+" Never invent evidence, quotes, or current facts. Do not read URLs, citation IDs, or audio direction tags aloud. For each turn set delivery to neutral, warm, curious, playful, or thoughtful; playful must fit genuinely light material and must not trivialize harm. Delivery is metadata, never part of text. Return the chapter title and turns.\nOverall request: "+ep.prompt+"\nReviewer issue: "+issue.reason+"\nChapter ordinal: "+issue.chapterOrdinal+"\nChapter: "+JSON.stringify({title:previous.title,turns:previous.turns})+"\nEvidence digest: "+(cp.research||"No fresh research was performed.")+"\nAllowed source IDs and URLs: "+JSON.stringify(validSources.map(x=>({id:x.id,url:x.url})))+"\nPersonas: "+hostStyles(ep)+"\nThe original has "+originalWords+" spoken words. Keep at least "+minimumWords+" spoken words; do not summarize or condense it. Aim for "+perChapter+" spoken words. Single host uses only speaker 0, two host mode can use speaker 0 and 1."+(attempt?"\nThe previous rewrite was too short. Expand the concrete explanation while staying within the evidence.":"");
+    const prompt="Rewrite this one chapter to fix the reviewer issue while preserving its substantial spoken length, focus, and natural listening style. Change other content only as needed. "+styleGuide+" "+presentationStyle(ep)+" Never invent evidence, quotes, or current facts. Do not read URLs, citation IDs, or audio direction tags aloud. For each turn set delivery to neutral, warm, curious, playful, or thoughtful; playful must fit genuinely light material and must not trivialize harm. Delivery is metadata, never part of text. Return the chapter title and turns.\nOverall request: "+ep.prompt+"\nReviewer issue: "+issue.reason+"\nChapter ordinal: "+issue.chapterOrdinal+"\nChapter: "+JSON.stringify({title:previous.title,turns:previous.turns})+"\nEvidence digest: "+(cp.research||"No fresh research was performed.")+"\nAllowed source IDs and URLs: "+JSON.stringify(validSources.map(x=>({id:x.id,url:x.url})))+"\nPersonas: "+hostStyles(ep)+"\nThe original has "+originalWords+" spoken words. Keep at least "+minimumWords+" spoken words; do not summarize or condense it. Aim for "+perChapter+" spoken words. Single host uses only speaker 0, two host mode can use speaker 0 and 1."+(feedback?"\nThe previous rewrite failed these checks: "+feedback+" Correct them while preserving the chapter's substance.":"");
     const result=await reviewer.generateStructured<any>(prompt,chapterSchema(validSources.map(x=>x.id),ep.personaSnapshot.length),"radio_chapter_rewrite",{timeoutMs:180000});
     await usage(l,"openai",result.model,"chapter_rewrite",result.usage,result.requestId);
     c=result.data;
-    if(Array.isArray(c?.turns)&&c.turns.every((x:any)=>typeof x.text==="string"&&!spokenMarkupIssue(x.text))&&countWords(c.turns.map((x:any)=>x.text).join(" "))>=minimumWords&&!spokenPacingIssues(c.turns,ep.personaSnapshot.length).length)break;
+    if(!Array.isArray(c?.turns)||!c.turns.length)throw new Error("invalid_rewrite");
+    const words=countWords(c.turns.map((x:any)=>x.text).join(" "));
+    const markup=c.turns.map((x:any)=>spokenMarkupIssue(x.text)).filter(Boolean);
+    const pacing=spokenPacingIssues(c.turns,ep.personaSnapshot.length);
+    feedback=[words<minimumWords?"Only "+words+" spoken words; at least "+minimumWords+" are needed.":"",...markup,...pacing].filter(Boolean).join(" ");
+    if(!feedback)break;
    }
    const allowed=new Set(validSources.map(x=>x.id));
    if(!Array.isArray(c?.turns)||!c.turns.length||typeof c.title!=="string"||!c.title.trim()||c.title.length>200)throw new Error("invalid_rewrite");
@@ -237,12 +251,16 @@ async function episode(l:Lease){
    cp.rewrittenOrdinals.push(issue.chapterOrdinal);
    await checkpoint(l,"check",{rewrittenOrdinals:cp.rewrittenOrdinals},{chapter});
    input=await jobInput(l);
-  }
-  if(cp.reviewIssues.length){
+   }
+   if(!cp.reviewIssues.length)break;
    const remaining=mergeReviewIssues(await reviewScript(l,input,"final"),deterministicScriptIssues(input,cp.outline.chapters.length,perChapter*0.55));
-   if(remaining.length){await checkpoint(l,"check",{reviewRemaining:remaining});throw new Error("review_unresolved");}
+   if(!remaining.length)break;
+   cp.reviewRound=Number(cp.reviewRound||0)+1;
+   cp.reviewIssues=remaining;cp.reviewRemaining=remaining;cp.rewrittenOrdinals=[];
+   await checkpoint(l,"check",{reviewRound:cp.reviewRound,reviewIssues:remaining,reviewRemaining:remaining,rewrittenOrdinals:[]});
+   if(++passesThisClaim>=3)throw new Error("review_unresolved");
   }
-  cp.reviewResolved=true;await checkpoint(l,"check",{reviewResolved:true});
+  cp.reviewResolved=true;await checkpoint(l,"check",{reviewResolved:true,reviewRemaining:[]});
   input=await jobInput(l);
  }
  if(!scriptAlreadyFrozen&&deterministicScriptIssues(input,cp.outline.chapters.length,perChapter*0.55).length)throw new Error("review_unresolved");
